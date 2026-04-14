@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>JustBuildIt — Dev Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #0d1117;
+      --surface:  #161b22;
+      --border:   #30363d;
+      --accent:   #7c3aed;
+      --accent2:  #10b981;
+      --text:     #e6edf3;
+      --muted:    #8b949e;
+      --red:      #f85149;
+      --yellow:   #e3b341;
+      --mono:     'JetBrains Mono', monospace;
+      --sans:     'Inter', sans-serif;
+    }
+
+    body {
+      font-family: var(--sans);
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    /* ── Layout ──────────────────────────────────── */
+    .header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 1rem 2rem;
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+    .logo { font-size: 1.4rem; font-weight: 700; }
+    .logo span { color: var(--accent); }
+    .badge {
+      font-size: .7rem; font-weight: 600; padding: .2rem .6rem;
+      border-radius: 999px; background: var(--accent); color: #fff;
+    }
+    .nav-links { margin-left: auto; display: flex; gap: 1.5rem; }
+    .nav-links a {
+      color: var(--muted); text-decoration: none; font-size: .9rem;
+      transition: color .2s;
+    }
+    .nav-links a:hover { color: var(--text); }
+
+    main {
+      max-width: 1100px;
+      margin: 2rem auto;
+      padding: 0 1.5rem;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.5rem;
+    }
+    @media (max-width: 700px) { main { grid-template-columns: 1fr; } }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.5rem;
+    }
+    .card-full { grid-column: 1 / -1; }
+    .card h2 {
+      font-size: 1rem; font-weight: 600; margin-bottom: 1.25rem;
+      display: flex; align-items: center; gap: .5rem; color: var(--text);
+    }
+    .card h2 .icon { font-size: 1.1rem; }
+
+    /* ── Status dot ──────────────────────────────── */
+    .status-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      display: inline-block; background: var(--muted);
+    }
+    .status-dot.green { background: var(--accent2); box-shadow: 0 0 6px var(--accent2); }
+    .status-dot.red   { background: var(--red); box-shadow: 0 0 6px var(--red); }
+
+    /* ── Stat grid ──────────────────────────────── */
+    .stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; }
+    .stat { text-align: center; }
+    .stat-val { font-size: 2rem; font-weight: 700; color: var(--accent); }
+    .stat-label { font-size: .75rem; color: var(--muted); margin-top: .2rem; }
+
+    /* ── Auth form ───────────────────────────────── */
+    .tabs { display: flex; gap: .5rem; margin-bottom: 1.25rem; }
+    .tab-btn {
+      padding: .4rem 1rem; border-radius: 8px; border: 1px solid var(--border);
+      background: transparent; color: var(--muted); cursor: pointer;
+      font-size: .85rem; font-family: var(--sans); transition: all .2s;
+    }
+    .tab-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+    .form-group { margin-bottom: .75rem; }
+    label { display: block; font-size: .8rem; color: var(--muted); margin-bottom: .3rem; }
+    input {
+      width: 100%; padding: .5rem .75rem;
+      background: var(--bg); border: 1px solid var(--border);
+      border-radius: 8px; color: var(--text); font-family: var(--sans);
+      font-size: .9rem; outline: none; transition: border-color .2s;
+    }
+    input:focus { border-color: var(--accent); }
+    .btn {
+      padding: .5rem 1.25rem; border-radius: 8px; border: none;
+      background: var(--accent); color: #fff; cursor: pointer;
+      font-weight: 600; font-size: .9rem; font-family: var(--sans);
+      transition: opacity .2s; width: 100%;
+    }
+    .btn:hover { opacity: .85; }
+    .btn-outline {
+      background: transparent; border: 1px solid var(--border); color: var(--muted);
+    }
+
+    /* ── Token display ───────────────────────────── */
+    .token-box {
+      background: var(--bg); border: 1px solid var(--border);
+      border-radius: 8px; padding: .75rem; margin-top: 1rem;
+      font-family: var(--mono); font-size: .72rem; color: var(--accent2);
+      word-break: break-all; white-space: pre-wrap; max-height: 120px;
+      overflow-y: auto; display: none;
+    }
+    .copy-btn {
+      margin-top: .5rem; padding: .35rem .8rem;
+      font-size: .78rem; border-radius: 6px; background: var(--accent2);
+      border: none; color: var(--bg); cursor: pointer; font-weight: 600;
+      font-family: var(--sans);
+    }
+
+    /* ── API Links ───────────────────────────────── */
+    .api-links { display: flex; flex-direction: column; gap: .6rem; }
+    .api-link {
+      display: flex; align-items: center; gap: .75rem;
+      padding: .6rem 1rem; border-radius: 8px;
+      background: var(--bg); border: 1px solid var(--border);
+      text-decoration: none; color: var(--text); transition: border-color .2s;
+    }
+    .api-link:hover { border-color: var(--accent); }
+    .method {
+      font-family: var(--mono); font-size: .72rem; font-weight: 700;
+      padding: .15rem .5rem; border-radius: 4px; min-width: 52px;
+      text-align: center;
+    }
+    .GET    { background: #0e4429; color: var(--accent2); }
+    .POST   { background: #1c2a4a; color: #58a6ff; }
+    .DELETE { background: #2d0f0f; color: var(--red); }
+    .path   { font-family: var(--mono); font-size: .8rem; color: var(--muted); }
+
+    /* ── Response preview ────────────────────────── */
+    .response {
+      background: var(--bg); border: 1px solid var(--border);
+      border-radius: 8px; padding: .75rem; margin-top: 1rem;
+      font-family: var(--mono); font-size: .78rem; color: var(--accent2);
+      white-space: pre-wrap; max-height: 200px; overflow-y: auto;
+      display: none;
+    }
+
+    /* ── Endpoint tester ─────────────────────────── */
+    .endpoint-row {
+      display: flex; gap: .5rem; margin-bottom: .75rem;
+    }
+    .endpoint-row input {
+      flex: 1; font-family: var(--mono); font-size: .82rem;
+    }
+    .small-btn {
+      padding: .5rem .8rem; border-radius: 8px; border: none;
+      background: var(--accent); color: #fff; cursor: pointer;
+      font-size: .8rem; font-family: var(--sans); white-space: nowrap;
+    }
+
+    .msg { font-size: .82rem; margin-top: .5rem; }
+    .msg.error { color: var(--red); }
+    .msg.success { color: var(--accent2); }
+  </style>
+</head>
+<body>
+
+<header class="header">
+  <div class="logo">just<span>build</span>it</div>
+  <span class="badge">Backend Dashboard</span>
+  <nav class="nav-links">
+    <a href="/api/v1/docs" target="_blank">📄 Swagger UI</a>
+    <a href="/api/v1/redoc" target="_blank">📘 ReDoc</a>
+    <a href="/health" target="_blank">❤️ Health</a>
+  </nav>
+</header>
+
+<main>
+
+  <!-- API Health -->
+  <div class="card">
+    <h2><span class="icon">🔌</span> API Status</h2>
+    <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:1.25rem;">
+      <span class="status-dot" id="health-dot"></span>
+      <span id="health-text" style="color:var(--muted);font-size:.9rem;">Checking...</span>
+    </div>
+    <div class="stat-grid" id="stat-grid">
+      <div class="stat"><div class="stat-val" id="s-total">—</div><div class="stat-label">Total Tasks</div></div>
+      <div class="stat"><div class="stat-val" id="s-done">—</div><div class="stat-label">Completed</div></div>
+      <div class="stat"><div class="stat-val" id="s-wip">—</div><div class="stat-label">In Progress</div></div>
+    </div>
+  </div>
+
+  <!-- Auth -->
+  <div class="card">
+    <h2><span class="icon">🔐</span> Auth Tester</h2>
+    <div class="tabs">
+      <button class="tab-btn active" onclick="switchTab('login')">Login</button>
+      <button class="tab-btn" onclick="switchTab('register')">Register</button>
+    </div>
+
+    <div id="tab-login">
+      <div class="form-group">
+        <label>Email</label>
+        <input id="login-email" type="email" placeholder="you@example.com" />
+      </div>
+      <div class="form-group">
+        <label>Password</label>
+        <input id="login-pass" type="password" placeholder="••••••••" />
+      </div>
+      <button class="btn" onclick="doLogin()">Login →</button>
+    </div>
+
+    <div id="tab-register" style="display:none">
+      <div class="form-group">
+        <label>Name</label>
+        <input id="reg-name" placeholder="John Doe" />
+      </div>
+      <div class="form-group">
+        <label>Email</label>
+        <input id="reg-email" type="email" placeholder="you@example.com" />
+      </div>
+      <div class="form-group">
+        <label>Password</label>
+        <input id="reg-pass" type="password" placeholder="••••••••" />
+      </div>
+      <button class="btn" onclick="doRegister()">Register →</button>
+    </div>
+
+    <div class="token-box" id="token-box"></div>
+    <button class="copy-btn" id="copy-btn" style="display:none" onclick="copyToken()">📋 Copy token</button>
+    <div class="msg" id="auth-msg"></div>
+  </div>
+
+  <!-- Quick Tester -->
+  <div class="card card-full">
+    <h2><span class="icon">🧪</span> API Quick Tester</h2>
+    <div class="endpoint-row">
+      <select id="qmethod" style="padding:.5rem;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-family:var(--mono);font-size:.82rem;">
+        <option>GET</option>
+        <option>POST</option>
+        <option>PATCH</option>
+        <option>DELETE</option>
+      </select>
+      <input id="qurl" value="/api/v1/projects/" placeholder="/api/v1/..." />
+      <button class="small-btn" onclick="quickTest()">Send</button>
+    </div>
+    <div class="form-group">
+      <label>Request Body (JSON, for POST/PATCH)</label>
+      <textarea id="qbody" style="width:100%;height:72px;padding:.5rem .75rem;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:var(--mono);font-size:.78rem;resize:vertical;outline:none;" placeholder='{"key": "value"}'></textarea>
+    </div>
+    <div class="response" id="qresponse"></div>
+    <div class="msg" id="qmsg"></div>
+  </div>
+
+  <!-- API Reference -->
+  <div class="card card-full">
+    <h2><span class="icon">📡</span> API Reference (click to test in Swagger)</h2>
+    <div class="api-links">
+      <a class="api-link" href="/api/v1/docs#/auth/register_api_v1_auth_register_post" target="_blank">
+        <span class="method POST">POST</span><span class="path">/api/v1/auth/register</span><span style="margin-left:auto;font-size:.78rem;color:var(--muted);">Register user</span>
+      </a>
+      <a class="api-link" href="/api/v1/docs#/auth/login_api_v1_auth_login_post" target="_blank">
+        <span class="method POST">POST</span><span class="path">/api/v1/auth/login</span><span style="margin-left:auto;font-size:.78rem;color:var(--muted);">Get tokens</span>
+      </a>
+      <a class="api-link" href="/api/v1/docs#/auth/me_api_v1_auth_me_get" target="_blank">
+        <span class="method GET">GET</span><span class="path">/api/v1/auth/me</span><span style="margin-left:auto;font-size:.78rem;color:var(--muted);">Current user</span>
+      </a>
+      <a class="api-link" href="/api/v1/docs#/organizations" target="_blank">
+        <span class="method GET">GET</span><span class="path">/api/v1/organizations/</span><span style="margin-left:auto;font-size:.78rem;color:var(--muted);">List orgs</span>
+      </a>
+      <a class="api-link" href="/api/v1/docs#/projects" target="_blank">
+        <span class="method GET">GET</span><span class="path">/api/v1/projects/</span><span style="margin-left:auto;font-size:.78rem;color:var(--muted);">List projects</span>
+      </a>
+      <a class="api-link" href="/api/v1/docs#/tasks" target="_blank">
+        <span class="method GET">GET</span><span class="path">/api/v1/tasks/</span><span style="margin-left:auto;font-size:.78rem;color:var(--muted);">List tasks</span>
+      </a>
+      <a class="api-link" href="/api/v1/docs#/analytics" target="_blank">
+        <span class="method GET">GET</span><span class="path">/api/v1/analytics/summary</span><span style="margin-left:auto;font-size:.78rem;color:var(--muted);">Task analytics</span>
+      </a>
+      <a class="api-link" href="/api/v1/docs#/github" target="_blank">
+        <span class="method POST">POST</span><span class="path">/api/v1/github/webhook</span><span style="margin-left:auto;font-size:.78rem;color:var(--muted);">GitHub webhook</span>
+      </a>
+    </div>
+  </div>
+
+</main>
+
+<script>
+  const BASE = '';
+  let accessToken = localStorage.getItem('jbi_token') || '';
+
+  // ── Health check ─────────────────────────────────────────────────────────────
+  async function checkHealth() {
+    try {
+      const r = await fetch(`${BASE}/health`);
+      const d = await r.json();
+      document.getElementById('health-dot').className = 'status-dot green';
+      document.getElementById('health-text').textContent = `${d.service} v${d.version || '1.0'} — OK`;
+      loadStats();
+    } catch {
+      document.getElementById('health-dot').className = 'status-dot red';
+      document.getElementById('health-text').textContent = 'API unreachable';
+    }
+  }
+
+  async function loadStats() {
+    if (!accessToken) return;
+    try {
+      const r = await fetch(`${BASE}/api/v1/analytics/summary`, {
+        headers: { Authorization: `Bearer ${accessToken}` }
+      });
+      if (r.ok) {
+        const d = await r.json();
+        document.getElementById('s-total').textContent = d.total_tasks ?? '—';
+        document.getElementById('s-done').textContent = d.completed_tasks ?? '—';
+        document.getElementById('s-wip').textContent = d.in_progress_tasks ?? '—';
+      }
+    } catch {}
+  }
+
+  // ── Auth tabs ─────────────────────────────────────────────────────────────────
+  function switchTab(tab) {
+    document.getElementById('tab-login').style.display    = tab === 'login'    ? '' : 'none';
+    document.getElementById('tab-register').style.display = tab === 'register' ? '' : 'none';
+    document.querySelectorAll('.tab-btn').forEach((b, i) => b.classList.toggle('active', (i===0) === (tab==='login')));
+  }
+
+  function showToken(token) {
+    const box = document.getElementById('token-box');
+    box.textContent = token;
+    box.style.display = 'block';
+    document.getElementById('copy-btn').style.display = 'inline-block';
+    accessToken = token;
+    localStorage.setItem('jbi_token', token);
+    loadStats();
+  }
+
+  function setMsg(id, text, type) {
+    const el = document.getElementById(id);
+    el.textContent = text;
+    el.className = `msg ${type}`;
+  }
+
+  async function doLogin() {
+    const email = document.getElementById('login-email').value;
+    const pass  = document.getElementById('login-pass').value;
+    try {
+      const r = await fetch(`${BASE}/api/v1/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password: pass }),
+      });
+      const d = await r.json();
+      if (!r.ok) { setMsg('auth-msg', d.detail || 'Login failed', 'error'); return; }
+      showToken(d.access_token);
+      setMsg('auth-msg', '✅ Logged in!', 'success');
+    } catch (e) {
+      setMsg('auth-msg', 'Network error', 'error');
+    }
+  }
+
+  async function doRegister() {
+    const name  = document.getElementById('reg-name').value;
+    const email = document.getElementById('reg-email').value;
+    const pass  = document.getElementById('reg-pass').value;
+    try {
+      const r = await fetch(`${BASE}/api/v1/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, email, password: pass }),
+      });
+      const d = await r.json();
+      if (!r.ok) { setMsg('auth-msg', d.detail || 'Registration failed', 'error'); return; }
+      setMsg('auth-msg', `✅ Registered! Now login with ${email}`, 'success');
+      switchTab('login');
+    } catch {
+      setMsg('auth-msg', 'Network error', 'error');
+    }
+  }
+
+  function copyToken() {
+    navigator.clipboard.writeText(accessToken).then(() => {
+      document.getElementById('copy-btn').textContent = '✅ Copied!';
+      setTimeout(() => document.getElementById('copy-btn').textContent = '📋 Copy token', 1500);
+    });
+  }
+
+  // ── Quick tester ──────────────────────────────────────────────────────────────
+  async function quickTest() {
+    const method  = document.getElementById('qmethod').value;
+    const url     = document.getElementById('qurl').value;
+    const bodyRaw = document.getElementById('qbody').value;
+    const res     = document.getElementById('qresponse');
+    const msg     = document.getElementById('qmsg');
+    msg.textContent = ''; res.style.display = 'none';
+
+    const opts = {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+    };
+    if (accessToken) opts.headers['Authorization'] = `Bearer ${accessToken}`;
+    if (bodyRaw.trim() && ['POST', 'PUT', 'PATCH'].includes(method)) {
+      try { opts.body = JSON.stringify(JSON.parse(bodyRaw)); }
+      catch { setMsg('qmsg', 'Invalid JSON body', 'error'); return; }
+    }
+
+    try {
+      const r = await fetch(`${BASE}${url}`, opts);
+      const text = await r.text();
+      let pretty;
+      try { pretty = JSON.stringify(JSON.parse(text), null, 2); } catch { pretty = text; }
+      res.textContent = `HTTP ${r.status}\n\n${pretty}`;
+      res.style.display = 'block';
+      res.style.color = r.ok ? 'var(--accent2)' : 'var(--red)';
+    } catch (e) {
+      setMsg('qmsg', `Error: ${e.message}`, 'error');
+    }
+  }
+
+  // ── Init ──────────────────────────────────────────────────────────────────────
+  if (accessToken) {
+    const box = document.getElementById('token-box');
+    box.textContent = accessToken;
+    box.style.display = 'block';
+    document.getElementById('copy-btn').style.display = 'inline-block';
+  }
+  checkHealth();
+</script>
+</body>
+</html>
