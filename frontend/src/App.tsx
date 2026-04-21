@@ -10,6 +10,7 @@ import Organizations from "./pages/Organizations";
 import SettingsPage from "./pages/Settings";
 import PrivacyPage from "./pages/Privacy";
 import DocumentationPage from "./pages/Documentation";
+import AuthCallback from "./pages/AuthCallback";
 
 import ProtectedRoute from "./components/ProtectedRoute";
 
@@ -21,6 +22,7 @@ function App() {
           <Route path="/" element={<LandingPage />} />
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
+          <Route path="/auth/callback" element={<AuthCallback />} />
           
           {/* Protected Routes */}
           <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />

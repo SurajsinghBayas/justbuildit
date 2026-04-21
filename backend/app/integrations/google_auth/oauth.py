@@ -1,17 +1,20 @@
 """
-Google OAuth2 integration using Authlib or manual flow.
+Google OAuth2 integration using manual flow with proper URL encoding.
 """
 from typing import Optional
+from urllib.parse import urlencode
 
 import httpx
 
 from app.core.config import settings
 
+GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GOOGLE_USERINFO_URL = "https://www.googleapis.com/oauth2/v3/userinfo"
 
 
 def get_google_auth_url(state: str) -> str:
+    """Build a properly URL-encoded Google OAuth2 consent URL."""
     params = {
         "client_id": settings.GOOGLE_CLIENT_ID,
         "redirect_uri": settings.GOOGLE_REDIRECT_URI,
@@ -19,9 +22,9 @@ def get_google_auth_url(state: str) -> str:
         "scope": "openid email profile",
         "state": state,
         "access_type": "offline",
+        "prompt": "select_account",  # Always show account picker
     }
-    query = "&".join(f"{k}={v}" for k, v in params.items())
-    return f"https://accounts.google.com/o/oauth2/v2/auth?{query}"
+    return f"{GOOGLE_AUTH_URL}?{urlencode(params)}"
 
 
 async def exchange_code_for_token(code: str) -> dict:

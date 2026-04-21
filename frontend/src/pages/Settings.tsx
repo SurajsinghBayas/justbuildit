@@ -86,7 +86,7 @@ export default function SettingsPage() {
                     <Input 
                       value={name} 
                       onChange={e => setName(e.target.value)} 
-                      className="pl-10 sleek-input" 
+                      className="sleek-input !pl-10" 
                       placeholder="Enter your name"
                       required
                     />
@@ -100,7 +100,7 @@ export default function SettingsPage() {
                       type="email"
                       value={email} 
                       onChange={e => setEmail(e.target.value)} 
-                      className="pl-10 sleek-input" 
+                      className="sleek-input !pl-10" 
                       placeholder="name@example.com"
                       required
                     />
@@ -127,7 +127,7 @@ export default function SettingsPage() {
                       type="password"
                       value={newPassword} 
                       onChange={e => setNewPassword(e.target.value)} 
-                      className="pl-10 sleek-input" 
+                      className="sleek-input !pl-10" 
                       placeholder="Enter new password (optional)"
                     />
                   </div>

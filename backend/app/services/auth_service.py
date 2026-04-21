@@ -38,6 +38,50 @@ class AuthService:
         result = await self.db.execute(select(User).where(User.id == user_id))
         return result.scalar_one_or_none()
 
+    async def get_by_google_id(self, google_id: str) -> Optional[User]:
+        result = await self.db.execute(select(User).where(User.google_id == google_id))
+        return result.scalar_one_or_none()
+
+    async def get_or_create_google_user(
+        self,
+        google_id: str,
+        email: str,
+        name: str,
+        avatar_url: Optional[str] = None,
+    ) -> User:
+        # 1. Try to find by google_id
+        user = await self.get_by_google_id(google_id)
+        if user:
+            # Keep avatar in sync
+            if avatar_url and user.avatar_url != avatar_url:
+                user.avatar_url = avatar_url
+                await self.db.commit()
+                await self.db.refresh(user)
+            return user
+
+        # 2. Try to find by email (link existing account)
+        user = await self.get_by_email(email)
+        if user:
+            user.google_id = google_id
+            if avatar_url:
+                user.avatar_url = avatar_url
+            await self.db.commit()
+            await self.db.refresh(user)
+            return user
+
+        # 3. Create new user (no password — Google-only account)
+        user = User(
+            name=name,
+            email=email,
+            google_id=google_id,
+            avatar_url=avatar_url,
+            password_hash=None,
+        )
+        self.db.add(user)
+        await self.db.commit()
+        await self.db.refresh(user)
+        return user
+
     async def update_profile(self, user_id: str, name: Optional[str] = None, email: Optional[str] = None, password: Optional[str] = None) -> User:
         user = await self.get_by_id(user_id)
         if not user:
@@ -58,3 +102,4 @@ class AuthService:
         await self.db.commit()
         await self.db.refresh(user)
         return user
+

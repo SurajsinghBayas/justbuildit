@@ -297,7 +297,7 @@ function OrgCard({ org, currentUserId }: { org: any; currentUserId: string }) {
                             value={inviteEmail}
                             onChange={(e) => setInviteEmail(e.target.value)}
                             required
-                            className="pl-9 sleek-input"
+                            className="sleek-input !pl-9"
                             placeholder="colleague@company.com"
                           />
                         </div>
