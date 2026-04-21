@@ -16,9 +16,9 @@ class TaskBase(BaseModel):
 
 class TaskCreate(TaskBase):
     project_id: str
-    organization_id: str
+    organization_id: Optional[str] = None  # auto-resolved from project's org if not provided
     assigned_to: Optional[str] = None
-    created_by: str
+    created_by: str = ""  # injected server-side
 
 
 class TaskUpdate(BaseModel):

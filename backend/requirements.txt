@@ -18,6 +18,9 @@ pydantic-settings>=2.7.1
 # HTTP Client
 httpx==0.27.0
 
+# AWS Bedrock (AI task generation)
+boto3>=1.34.0
+
 # Workers
 celery==5.4.0
 redis==5.0.7

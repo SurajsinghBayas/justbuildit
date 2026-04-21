@@ -3,38 +3,76 @@ import apiClient from '@/api/client';
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Link } from 'react-router-dom';
-import { CheckSquare, Plus, Loader2, ArrowLeft, Clock, AlertCircle } from 'lucide-react';
+import Navbar from '@/components/Navbar';
+import {
+  CheckSquare, Plus, Loader2, Clock, AlertCircle,
+  Circle, CheckCircle2, AlertTriangle, Zap, Sparkles, Filter,
+  Briefcase
+} from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
+const PRIORITIES = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'];
+const STATUSES = ['TODO', 'IN_PROGRESS', 'IN_REVIEW', 'DONE'];
+
+const priorityConfig: Record<string, { color: string; icon: React.ReactNode }> = {
+  LOW:      { color: 'bg-slate-100 text-slate-600 border-slate-200', icon: <Circle className="w-3 h-3" /> },
+  MEDIUM:   { color: 'bg-blue-50 text-blue-600 border-blue-200',     icon: <AlertCircle className="w-3 h-3" /> },
+  HIGH:     { color: 'bg-orange-50 text-orange-600 border-orange-200', icon: <AlertTriangle className="w-3 h-3" /> },
+  CRITICAL: { color: 'bg-red-50 text-red-600 border-red-200',        icon: <Zap className="w-3 h-3" /> },
+};
+const statusConfig: Record<string, { color: string; icon: React.ReactNode }> = {
+  TODO:        { color: 'bg-gray-100 text-gray-600 border-gray-200',      icon: <Circle className="w-3 h-3" /> },
+  IN_PROGRESS: { color: 'bg-blue-100 text-blue-700 border-blue-200',      icon: <Clock className="w-3 h-3" /> },
+  IN_REVIEW:   { color: 'bg-purple-100 text-purple-700 border-purple-200',icon: <AlertCircle className="w-3 h-3" /> },
+  DONE:        { color: 'bg-emerald-100 text-emerald-700 border-emerald-200', icon: <CheckCircle2 className="w-3 h-3" /> },
+};
+
 export default function Tasks() {
   const [tasks, setTasks] = useState<any[]>([]);
   const [projects, setProjects] = useState<any[]>([]);
-  const [orgs, setOrgs] = useState<any[]>([]);
-  
   const [loading, setLoading] = useState(true);
-  const [open, setOpen] = useState(false);
+
+  // Filters
+  const [filterProject, setFilterProject] = useState('');
+  const [filterPriority, setFilterPriority] = useState('');
+  const [filterStatus, setFilterStatus] = useState('');
+
+  // Create task
+  const [createOpen, setCreateOpen] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
-  
-  const [title, setTitle] = useState('');
-  const [desc, setDesc] = useState('');
-  const [projectId, setProjectId] = useState('');
-  const [orgId, setOrgId] = useState('');
+  const [taskTitle, setTaskTitle] = useState('');
+  const [taskDesc, setTaskDesc] = useState('');
+  const [taskPriority, setTaskPriority] = useState('MEDIUM');
+  const [taskStatus, setTaskStatus] = useState('TODO');
+  const [taskProject, setTaskProject] = useState('');
+  const [taskEstimate, setTaskEstimate] = useState('');
+  const [createError, setCreateError] = useState('');
+
+  // AI Generate
+  const [aiOpen, setAiOpen] = useState(false);
+  const [aiProject, setAiProject] = useState('');
+  const [aiCount, setAiCount] = useState(5);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [aiPreview, setAiPreview] = useState<any[]>([]);
+  const [selectedAi, setSelectedAi] = useState<Set<number>>(new Set());
+  const [aiStep, setAiStep] = useState<'setup' | 'review'>('setup');
+  const [isSavingAi, setIsSavingAi] = useState(false);
 
   async function fetchData() {
     setLoading(true);
     try {
-      const [tRes, pRes, oRes] = await Promise.all([
+      const [tRes, pRes] = await Promise.all([
         apiClient.get('/tasks/'),
         apiClient.get('/projects/'),
-        apiClient.get('/organizations/')
       ]);
       setTasks(tRes.data);
       setProjects(pRes.data);
-      setOrgs(oRes.data);
-      if (pRes.data.length > 0) setProjectId(pRes.data[0].id);
-      if (oRes.data.length > 0) setOrgId(oRes.data[0].id);
+      if (pRes.data.length > 0) {
+        setTaskProject(pRes.data[0].id);
+        setAiProject(pRes.data[0].id);
+      }
     } catch (err) {
       console.error(err);
     } finally {
@@ -42,118 +80,348 @@ export default function Tasks() {
     }
   }
 
-  useEffect(() => {
-    fetchData();
-  }, []);
+  useEffect(() => { fetchData(); }, []);
 
   const handleCreateTask = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!projectId || !orgId) return alert("You must have a project and organization first.");
+    if (!taskProject) return;
     setIsCreating(true);
+    setCreateError('');
     try {
-      await apiClient.post('/tasks/', { 
-        title, 
-        description: desc, 
-        project_id: projectId,
-        organization_id: orgId
+      await apiClient.post('/tasks/', {
+        title: taskTitle,
+        description: taskDesc,
+        priority: taskPriority,
+        status: taskStatus,
+        estimated_time: taskEstimate ? parseFloat(taskEstimate) : null,
+        project_id: taskProject,
       });
-      setOpen(false);
-      setTitle('');
-      setDesc('');
-      fetchData(); // refresh tasks
-    } catch (err) {
-      console.error(err);
+      setCreateOpen(false);
+      setTaskTitle(''); setTaskDesc(''); setTaskPriority('MEDIUM'); setTaskStatus('TODO'); setTaskEstimate('');
+      fetchData();
+    } catch (err: any) {
+      setCreateError(err?.response?.data?.detail || 'Failed to create task');
     } finally {
       setIsCreating(false);
     }
   };
 
-  return (
-    <div className="min-h-screen bg-gray-50 flex flex-col font-sans">
-      <header className="bg-white px-6 py-4 flex items-center justify-between border-b border-gray-200">
-         <Link to="/dashboard" className="font-bold text-sm flex items-center gap-2 text-gray-600 hover:text-gray-900">
-           <ArrowLeft className="w-4 h-4" /> Back to Dashboard
-         </Link>
-      </header>
+  const handleAiGenerate = async () => {
+    const proj = projects.find(p => p.id === aiProject);
+    if (!proj) return;
+    setIsGenerating(true);
+    try {
+      const res = await apiClient.post('/tasks/ai-generate', {
+        project_name: proj.name,
+        project_description: proj.description,
+        count: aiCount,
+      });
+      setAiPreview(res.data.tasks);
+      setSelectedAi(new Set(res.data.tasks.map((_: any, i: number) => i)));
+      setAiStep('review');
+    } catch (err: any) {
+      alert(err?.response?.data?.detail || 'AI generation failed');
+    } finally {
+      setIsGenerating(false);
+    }
+  };
 
-      <main className="p-8 max-w-5xl mx-auto w-full space-y-8 flex-1">
-        <div className="flex justify-between items-end border-b border-gray-200 pb-4">
-           <div>
-             <h1 className="text-3xl font-bold tracking-tight text-gray-900">Tasks</h1>
-             <p className="text-sm text-gray-500 mt-1 font-medium">Your team's task list in a glance.</p>
-           </div>
-           
-           <Dialog open={open} onOpenChange={setOpen}>
-             <DialogTrigger asChild>
-               <Button className="bg-gray-900 text-white hover:bg-gray-800 text-sm h-9">
-                 <Plus className="w-4 h-4 mr-2" /> Create Task
-               </Button>
-             </DialogTrigger>
-             <DialogContent className="sm:max-w-[425px] bg-white">
-               <DialogHeader>
-                 <DialogTitle>Create Task</DialogTitle>
-               </DialogHeader>
-               <form onSubmit={handleCreateTask} className="space-y-4 mt-4">
-                 <div className="space-y-2">
-                   <Label>Task Title</Label>
-                   <Input value={title} onChange={e => setTitle(e.target.value)} required className="sleek-input" placeholder="What needs to be done?" />
-                 </div>
-                 <div className="space-y-2">
-                   <Label>Description</Label>
-                   <Input value={desc} onChange={e => setDesc(e.target.value)} className="sleek-input" placeholder="Task details" />
-                 </div>
-                 <div className="space-y-2 flex flex-col">
-                   <Label>Select Project</Label>
-                   <select value={projectId} onChange={e => setProjectId(e.target.value)} className="sleek-input bg-white h-10">
-                     {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                     {projects.length === 0 && <option value="">No projects available</option>}
-                   </select>
-                 </div>
-                 <div className="pt-4 flex justify-end">
-                   <Button type="submit" disabled={isCreating || !projectId || !orgId} className="bg-gray-900 text-white w-full">
-                     {isCreating ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : 'Create Task'}
-                   </Button>
-                 </div>
-               </form>
-             </DialogContent>
-           </Dialog>
+  const handleSaveAiTasks = async () => {
+    setIsSavingAi(true);
+    const toSave = aiPreview.filter((_, i) => selectedAi.has(i));
+    try {
+      await Promise.all(toSave.map((t: any) =>
+        apiClient.post('/tasks/', {
+          title: t.title, description: t.description,
+          priority: t.priority, status: 'TODO',
+          estimated_time: t.estimated_time, project_id: aiProject,
+        })
+      ));
+      setAiOpen(false);
+      setAiStep('setup');
+      setAiPreview([]);
+      fetchData();
+    } catch (err: any) {
+      alert(err?.response?.data?.detail || 'Failed to save tasks');
+    } finally {
+      setIsSavingAi(false);
+    }
+  };
+
+  const handleUpdateStatus = async (taskId: string, newStatus: string) => {
+    try {
+      const res = await apiClient.patch(`/tasks/${taskId}/status`, { status: newStatus });
+      setTasks(tasks.map(t => t.id === taskId ? res.data : t));
+    } catch {}
+  };
+
+  const filteredTasks = tasks.filter(t => {
+    if (filterProject && t.project_id !== filterProject) return false;
+    if (filterPriority && t.priority !== filterPriority) return false;
+    if (filterStatus && t.status !== filterStatus) return false;
+    return true;
+  });
+
+  const toggleAiTask = (i: number) => {
+    setSelectedAi(prev => {
+      const next = new Set(prev);
+      next.has(i) ? next.delete(i) : next.add(i);
+      return next;
+    });
+  };
+
+  return (
+    <div className="min-h-screen bg-gray-50 font-sans">
+      <Navbar />
+
+      <main className="max-w-5xl mx-auto px-6 py-8 space-y-6">
+        <div className="flex items-end justify-between border-b border-gray-200 pb-5">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight text-gray-900">Tasks</h1>
+            <p className="text-sm text-gray-500 mt-1">All tasks across your team's projects.</p>
+          </div>
+          <div className="flex items-center gap-2">
+            {/* AI Generate Dialog */}
+            <Dialog open={aiOpen} onOpenChange={(o) => { setAiOpen(o); if (!o) { setAiStep('setup'); setAiPreview([]); }}}>
+              <DialogTrigger asChild>
+                <Button variant="outline" className="border-purple-200 text-purple-700 hover:bg-purple-50 text-sm h-9 gap-2">
+                  <Sparkles className="w-4 h-4" /> AI Generate
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-[540px] bg-white">
+                <DialogHeader>
+                  <DialogTitle className="flex items-center gap-2">
+                    <Sparkles className="w-5 h-5 text-purple-600" /> AI Task Generator
+                  </DialogTitle>
+                </DialogHeader>
+                {aiStep === 'setup' ? (
+                  <div className="space-y-5 mt-4">
+                    {projects.length === 0 ? (
+                      <div className="text-center py-6 text-sm text-gray-500">
+                        <Briefcase className="w-8 h-8 text-gray-200 mx-auto mb-2" />
+                        <Link to="/projects" className="text-gray-900 font-semibold underline">Create a project</Link> first.
+                      </div>
+                    ) : (
+                      <>
+                        <div className="space-y-2">
+                          <Label>Select Project</Label>
+                          <select value={aiProject} onChange={e => setAiProject(e.target.value)}
+                            className="w-full h-10 rounded-md border border-gray-200 px-3 text-sm bg-white focus:ring-2 focus:ring-gray-900 outline-none">
+                            {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                          </select>
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Number of tasks</Label>
+                          <div className="flex items-center gap-2">
+                            {[3, 5, 7, 10].map(n => (
+                              <button key={n} onClick={() => setAiCount(n)}
+                                className={`w-12 h-10 rounded-lg border text-sm font-semibold transition-all ${aiCount === n ? 'bg-gray-900 text-white border-gray-900' : 'border-gray-200 hover:border-gray-400'}`}>
+                                {n}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                        <Button onClick={handleAiGenerate} disabled={isGenerating || !aiProject} className="w-full bg-purple-600 hover:bg-purple-700 text-white gap-2">
+                          {isGenerating ? <><Loader2 className="w-4 h-4 animate-spin" /> Generating...</> : <><Sparkles className="w-4 h-4" /> Generate {aiCount} Tasks</>}
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                ) : (
+                  <div className="space-y-4 mt-4">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-medium text-gray-700">{selectedAi.size} of {aiPreview.length} selected</p>
+                      <button onClick={() => setAiStep('setup')} className="text-xs text-gray-400 hover:text-gray-900 underline">← Back</button>
+                    </div>
+                    <div className="space-y-2 max-h-72 overflow-y-auto">
+                      {aiPreview.map((t: any, i: number) => {
+                        const pc = priorityConfig[t.priority] || priorityConfig.MEDIUM;
+                        const sel = selectedAi.has(i);
+                        return (
+                          <div key={i} onClick={() => toggleAiTask(i)}
+                            className={`p-3 rounded-lg border cursor-pointer transition-all ${sel ? 'border-gray-900 bg-gray-50' : 'border-gray-200 bg-white opacity-50'}`}>
+                            <div className="flex items-start gap-3">
+                              <div className={`mt-0.5 w-4 h-4 rounded border-2 flex-shrink-0 flex items-center justify-center ${sel ? 'bg-gray-900 border-gray-900' : 'border-gray-300'}`}>
+                                {sel && <CheckCircle2 className="w-3 h-3 text-white" />}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-semibold text-gray-900">{t.title}</p>
+                                <p className="text-xs text-gray-400 mt-0.5 line-clamp-2">{t.description}</p>
+                              </div>
+                              <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                                <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded border flex items-center gap-0.5 ${pc.color}`}>
+                                  {pc.icon}{t.priority}
+                                </span>
+                                {t.estimated_time && <span className="text-[10px] text-gray-400">{t.estimated_time}h</span>}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <Button onClick={handleSaveAiTasks} disabled={isSavingAi || selectedAi.size === 0} className="w-full bg-gray-900 text-white">
+                      {isSavingAi ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+                      {isSavingAi ? 'Saving...' : `Add ${selectedAi.size} Tasks`}
+                    </Button>
+                  </div>
+                )}
+              </DialogContent>
+            </Dialog>
+
+            {/* Create Task Dialog */}
+            <Dialog open={createOpen} onOpenChange={(o) => { setCreateOpen(o); setCreateError(''); }}>
+              <DialogTrigger asChild>
+                <Button className="bg-gray-900 text-white hover:bg-gray-800 text-sm h-9 gap-2">
+                  <Plus className="w-4 h-4" /> Create Task
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-[440px] bg-white">
+                <DialogHeader>
+                  <DialogTitle>Create Task</DialogTitle>
+                </DialogHeader>
+                <form onSubmit={handleCreateTask} className="space-y-4 mt-4">
+                  {projects.length === 0 && (
+                    <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
+                      ⚠️ <Link to="/projects" className="font-semibold underline">Create a project</Link> before adding tasks.
+                    </div>
+                  )}
+                  <div className="space-y-2">
+                    <Label>Task Title *</Label>
+                    <Input value={taskTitle} onChange={e => setTaskTitle(e.target.value)} required placeholder="e.g. Set up CI/CD pipeline" className="sleek-input" autoFocus />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Description</Label>
+                    <textarea value={taskDesc} onChange={e => setTaskDesc(e.target.value)}
+                      className="w-full rounded-md border border-gray-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-gray-900 min-h-[70px] resize-none"
+                      placeholder="What needs to be done..." />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Project</Label>
+                    <select value={taskProject} onChange={e => setTaskProject(e.target.value)}
+                      className="w-full h-10 rounded-md border border-gray-200 px-3 text-sm bg-white focus:ring-2 focus:ring-gray-900 outline-none">
+                      {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                      {projects.length === 0 && <option value="">No projects available</option>}
+                    </select>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-2">
+                      <Label>Priority</Label>
+                      <select value={taskPriority} onChange={e => setTaskPriority(e.target.value)}
+                        className="w-full h-10 rounded-md border border-gray-200 px-3 text-sm bg-white focus:ring-2 focus:ring-gray-900 outline-none">
+                        {PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}
+                      </select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Status</Label>
+                      <select value={taskStatus} onChange={e => setTaskStatus(e.target.value)}
+                        className="w-full h-10 rounded-md border border-gray-200 px-3 text-sm bg-white focus:ring-2 focus:ring-gray-900 outline-none">
+                        {STATUSES.map(s => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Estimated Hours</Label>
+                    <Input type="number" min="0.5" step="0.5" value={taskEstimate} onChange={e => setTaskEstimate(e.target.value)} placeholder="e.g. 3" className="sleek-input" />
+                  </div>
+                  {createError && <p className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{createError}</p>}
+                  <Button type="submit" disabled={isCreating || !taskProject} className="bg-gray-900 text-white w-full">
+                    {isCreating ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+                    {isCreating ? 'Creating...' : 'Create Task'}
+                  </Button>
+                </form>
+              </DialogContent>
+            </Dialog>
+          </div>
+        </div>
+
+        {/* Filters */}
+        <div className="flex items-center gap-3 flex-wrap">
+          <Filter className="w-4 h-4 text-gray-400 flex-shrink-0" />
+          <select value={filterProject} onChange={e => setFilterProject(e.target.value)}
+            className="h-8 rounded-lg border border-gray-200 px-3 text-xs bg-white text-gray-700 focus:ring-2 focus:ring-gray-900 outline-none">
+            <option value="">All Projects</option>
+            {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+          <select value={filterPriority} onChange={e => setFilterPriority(e.target.value)}
+            className="h-8 rounded-lg border border-gray-200 px-3 text-xs bg-white text-gray-700 focus:ring-2 focus:ring-gray-900 outline-none">
+            <option value="">All Priorities</option>
+            {PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}
+          </select>
+          <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)}
+            className="h-8 rounded-lg border border-gray-200 px-3 text-xs bg-white text-gray-700 focus:ring-2 focus:ring-gray-900 outline-none">
+            <option value="">All Statuses</option>
+            {STATUSES.map(s => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
+          </select>
+          {(filterProject || filterPriority || filterStatus) && (
+            <button onClick={() => { setFilterProject(''); setFilterPriority(''); setFilterStatus(''); }}
+              className="text-xs text-red-500 hover:text-red-700 underline">Clear</button>
+          )}
+          <span className="ml-auto text-xs text-gray-400">{filteredTasks.length} task{filteredTasks.length !== 1 ? 's' : ''}</span>
         </div>
 
         {loading ? (
-          <div className="flex justify-center p-20">
+          <div className="flex justify-center py-20">
             <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
           </div>
         ) : (
-          <div className="space-y-3">
-            {tasks.length > 0 ? tasks.map((t: any) => (
-              <Card key={t.id} className="sleek-card cursor-pointer"> 
-                <CardContent className="p-4 flex items-center justify-between gap-4">
-                  <div className="flex items-start gap-4">
-                    <div className="mt-1 flex-shrink-0 w-8 h-8 rounded border border-gray-200 bg-gray-50 flex items-center justify-center text-gray-500">
-                      <CheckSquare className="w-4 h-4" />
-                    </div>
-                    <div>
-                      <h3 className="font-semibold text-gray-900">{t.title}</h3>
-                      <div className="flex flex-wrap gap-2 mt-2">
-                        <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded
-                          ${t.priority === 'High' ? 'bg-red-50 text-red-600 border border-red-100' : 'bg-gray-100 text-gray-600 border border-gray-200'}
-                        `}>
-                          {t.priority || 'Medium'} Priority
+          <div className="space-y-2">
+            {filteredTasks.length > 0 ? filteredTasks.map((t: any) => {
+              const pc = priorityConfig[t.priority] || priorityConfig.MEDIUM;
+              const sc = statusConfig[t.status] || statusConfig.TODO;
+              const proj = projects.find(p => p.id === t.project_id);
+              return (
+                <Card key={t.id} className="sleek-card hover:shadow-md transition-all">
+                  <CardContent className="p-4 flex items-center gap-4">
+                    <CheckSquare className="w-4 h-4 text-gray-300 flex-shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-semibold text-gray-900 truncate text-sm">{t.title}</h3>
+                      {t.description && <p className="text-xs text-gray-400 mt-0.5 truncate">{t.description}</p>}
+                      <div className="flex flex-wrap gap-1.5 mt-2">
+                        <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded border flex items-center gap-0.5 ${pc.color}`}>
+                          {pc.icon}{t.priority}
                         </span>
-                        <span className="text-[10px] uppercase font-bold px-2 py-0.5 bg-blue-50 text-blue-600 border border-blue-100 rounded flex items-center gap-1">
-                          <Clock className="w-3 h-3" /> {t.status || 'TODO'}
+                        <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded border flex items-center gap-0.5 ${sc.color}`}>
+                          {sc.icon}{t.status.replace('_', ' ')}
                         </span>
+                        {proj && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded border border-gray-200 bg-gray-50 text-gray-400 flex items-center gap-0.5">
+                            <Briefcase className="w-2.5 h-2.5" />{proj.name}
+                          </span>
+                        )}
+                        {t.estimated_time && (
+                          <span className="text-[10px] text-gray-400 flex items-center gap-0.5">
+                            <Clock className="w-2.5 h-2.5" />{t.estimated_time}h
+                          </span>
+                        )}
                       </div>
                     </div>
+                    <select
+                      value={t.status}
+                      onChange={e => handleUpdateStatus(t.id, e.target.value)}
+                      className="h-8 rounded-lg border border-gray-200 px-2 text-xs bg-white text-gray-700 focus:ring-2 focus:ring-gray-900 outline-none cursor-pointer flex-shrink-0"
+                    >
+                      {STATUSES.map(s => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
+                    </select>
+                  </CardContent>
+                </Card>
+              );
+            }) : (
+              <div className="py-20 text-center border border-dashed border-gray-200 rounded-xl">
+                <CheckSquare className="w-10 h-10 text-gray-200 mx-auto mb-3" />
+                <h3 className="text-sm font-semibold text-gray-900 mb-1">
+                  {tasks.length === 0 ? 'No tasks yet' : 'No tasks match your filters'}
+                </h3>
+                <p className="text-sm text-gray-400 mb-4">
+                  {tasks.length === 0 ? 'Create tasks manually or use AI to generate them.' : 'Try clearing your filters.'}
+                </p>
+                {tasks.length === 0 && (
+                  <div className="flex items-center gap-3 justify-center">
+                    <Button size="sm" onClick={() => setCreateOpen(true)} className="gap-1.5"><Plus className="w-4 h-4" /> Add Task</Button>
+                    <Button size="sm" variant="outline" onClick={() => setAiOpen(true)} className="gap-1.5 border-purple-200 text-purple-700 hover:bg-purple-50">
+                      <Sparkles className="w-4 h-4" /> AI Generate
+                    </Button>
                   </div>
-                  <Button variant="outline" size="sm" className="font-semibold text-xs border-gray-200">Open</Button>
-                </CardContent>
-              </Card>
-            )) : (
-              <div className="py-16 text-center border border-dashed border-gray-200 rounded-lg">
-                <CheckSquare className="w-8 h-8 text-gray-300 mx-auto mb-3" />
-                <h3 className="text-sm font-semibold text-gray-900 mb-1">No tasks found</h3>
-                <p className="text-sm text-gray-500">You're all caught up!</p>
+                )}
               </div>
             )}
           </div>

@@ -38,14 +38,13 @@ class Settings(BaseSettings):
     GOOGLE_CLIENT_SECRET: str = ""
     GOOGLE_REDIRECT_URI: str = "http://localhost:8000/api/v1/auth/google/callback"
 
-    # AI Service
-    AI_SERVICE_URL: str = "http://localhost:8001"
-    AI_SERVICE_API_KEY: str = ""
-
-    # AWS
-    AWS_REGION: str = "us-east-1"
+    # AWS Bedrock (AI task generation)
     AWS_ACCESS_KEY_ID: str = ""
     AWS_SECRET_ACCESS_KEY: str = ""
+    AWS_DEFAULT_REGION: str = "ap-south-1"
+    BEDROCK_MODEL_ID: str = "arn:aws:bedrock:ap-south-1:458479809589:inference-profile/apac.amazon.nova-micro-v1:0"
+
+    # AWS S3
     S3_BUCKET_NAME: str = ""
 
 

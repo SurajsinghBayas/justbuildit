@@ -9,8 +9,11 @@ class ProjectBase(BaseModel):
     status: str = "ACTIVE"
 
 
-class ProjectCreate(ProjectBase):
-    organization_id: str
+class ProjectCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+    status: str = "ACTIVE"
+    organization_id: Optional[str] = None  # auto-resolved from user's first org if not provided
 
 
 class ProjectUpdate(BaseModel):

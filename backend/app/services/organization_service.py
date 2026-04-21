@@ -1,10 +1,12 @@
 from typing import List, Optional
 
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.organization import Organization
 from app.models.membership import Membership
+from app.models.user import User
 from app.schemas.organization import OrganizationCreate, OrganizationUpdate
 
 
@@ -14,7 +16,6 @@ class OrganizationService:
 
     async def list_for_user(self, user_id: str) -> List[Organization]:
         """Return all organizations where the user is a member or owner."""
-        # Get orgs via membership
         result = await self.db.execute(
             select(Organization)
             .join(Membership, Membership.organization_id == Organization.id)
@@ -35,18 +36,38 @@ class OrganizationService:
         )
         return result.scalar_one_or_none()
 
+    async def get_user_role(self, org_id: str, user_id: str) -> Optional[str]:
+        """Return the role of a user in an org, or None if not a member."""
+        result = await self.db.execute(
+            select(Membership.role).where(
+                Membership.organization_id == org_id,
+                Membership.user_id == user_id,
+            )
+        )
+        row = result.scalar_one_or_none()
+        return row
+
     async def create(self, payload: OrganizationCreate, owner_id: str) -> Organization:
         from fastapi import HTTPException
-        # Check slug uniqueness
-        existing = await self.get_by_slug(payload.slug)
-        if existing:
-            raise HTTPException(status_code=400, detail="Organization slug already taken")
+        import re, random, string
 
-        org = Organization(**payload.model_dump(), owner_id=owner_id)
+        # Auto-generate slug from name if not provided
+        raw_slug = payload.slug or payload.name
+        slug = re.sub(r'[^a-z0-9]+', '-', raw_slug.lower()).strip('-')
+        base_slug = slug
+        for _ in range(10):
+            existing = await self.get_by_slug(slug)
+            if not existing:
+                break
+            slug = base_slug + '-' + ''.join(random.choices(string.ascii_lowercase + string.digits, k=4))
+        else:
+            raise HTTPException(status_code=400, detail="Could not generate a unique slug")
+
+        org = Organization(name=payload.name, slug=slug, logo_url=payload.logo_url, owner_id=owner_id)
         self.db.add(org)
-        await self.db.flush()  # Get the org.id before creating membership
+        await self.db.flush()
 
-        # Auto-create membership for owner
+        # Auto-create OWNER membership
         membership = Membership(user_id=owner_id, organization_id=org.id, role="OWNER")
         self.db.add(membership)
 
@@ -71,11 +92,27 @@ class OrganizationService:
             org.is_deleted = True
             await self.db.commit()
 
-    async def list_members(self, org_id: str) -> List[Membership]:
+    async def list_members_with_details(self, org_id: str) -> list:
+        """Return memberships joined with user details (name, email, avatar)."""
         result = await self.db.execute(
-            select(Membership).where(Membership.organization_id == org_id)
+            select(Membership, User)
+            .join(User, User.id == Membership.user_id)
+            .where(Membership.organization_id == org_id)
+            .order_by(Membership.joined_at)
         )
-        return list(result.scalars().all())
+        rows = result.all()
+        members = []
+        for membership, user in rows:
+            members.append({
+                "user_id": membership.user_id,
+                "organization_id": membership.organization_id,
+                "role": membership.role,
+                "joined_at": membership.joined_at,
+                "name": user.name,
+                "email": user.email,
+                "avatar_url": user.avatar_url,
+            })
+        return members
 
     async def add_member(self, org_id: str, user_id: str, role: str = "MEMBER") -> Membership:
         membership = Membership(user_id=user_id, organization_id=org_id, role=role)
@@ -83,3 +120,31 @@ class OrganizationService:
         await self.db.commit()
         await self.db.refresh(membership)
         return membership
+
+    async def add_member_by_email(self, org_id: str, email: str, role: str = "MEMBER") -> dict:
+        from fastapi import HTTPException
+        result = await self.db.execute(select(User).where(User.email == email))
+        user = result.scalar_one_or_none()
+        if not user:
+            raise HTTPException(status_code=404, detail=f"No user found with email: {email}")
+        existing = await self.db.execute(
+            select(Membership).where(
+                Membership.organization_id == org_id,
+                Membership.user_id == user.id,
+            )
+        )
+        if existing.scalar_one_or_none():
+            raise HTTPException(status_code=400, detail="User is already a member of this organization")
+        membership = Membership(user_id=user.id, organization_id=org_id, role=role)
+        self.db.add(membership)
+        await self.db.commit()
+        await self.db.refresh(membership)
+        return {
+            "user_id": user.id,
+            "organization_id": org_id,
+            "role": role,
+            "joined_at": membership.joined_at,
+            "name": user.name,
+            "email": user.email,
+            "avatar_url": user.avatar_url,
+        }

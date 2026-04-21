@@ -4,6 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.project import Project
+from app.models.membership import Membership
 from app.schemas.project import ProjectCreate, ProjectUpdate
 
 
@@ -12,7 +13,20 @@ class ProjectService:
         self.db = db
 
     async def list_for_user(self, user_id: str) -> List[Project]:
-        result = await self.db.execute(select(Project).where(Project.created_by == user_id))
+        """Return all projects in orgs the user belongs to (member or owner)."""
+        # Get org IDs the user is a member of
+        org_result = await self.db.execute(
+            select(Membership.organization_id).where(Membership.user_id == user_id)
+        )
+        org_ids = [row[0] for row in org_result.fetchall()]
+        if not org_ids:
+            return []
+        result = await self.db.execute(
+            select(Project)
+            .where(Project.organization_id.in_(org_ids))
+            .where(Project.is_deleted == False)
+            .order_by(Project.created_at.desc())
+        )
         return list(result.scalars().all())
 
     async def get(self, project_id: str) -> Optional[Project]:
@@ -20,7 +34,13 @@ class ProjectService:
         return result.scalar_one_or_none()
 
     async def create(self, payload: ProjectCreate, owner_id: str) -> Project:
-        project = Project(**payload.model_dump(), created_by=owner_id)
+        project = Project(
+            name=payload.name,
+            description=payload.description,
+            status=payload.status,
+            organization_id=payload.organization_id,
+            created_by=owner_id,
+        )
         self.db.add(project)
         await self.db.commit()
         await self.db.refresh(project)
@@ -40,5 +60,5 @@ class ProjectService:
     async def delete(self, project_id: str) -> None:
         project = await self.get(project_id)
         if project:
-            await self.db.delete(project)
+            project.is_deleted = True
             await self.db.commit()

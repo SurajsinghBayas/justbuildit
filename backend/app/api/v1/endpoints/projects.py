@@ -25,6 +25,17 @@ async def create_project(
     user_id: str = Depends(get_current_user_id),
 ):
     svc = ProjectService(db)
+    # Auto-resolve organization_id from user's first org if not provided
+    if not payload.organization_id:
+        from app.services.organization_service import OrganizationService
+        org_svc = OrganizationService(db)
+        orgs = await org_svc.list_for_user(user_id)
+        if not orgs:
+            raise HTTPException(
+                status_code=400,
+                detail="You must belong to an organization before creating a project. Create one first."
+            )
+        payload.organization_id = orgs[0].id
     return await svc.create(payload, owner_id=user_id)
 
 
