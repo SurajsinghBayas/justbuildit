@@ -27,6 +27,19 @@ class Task(Base):
     tags:                 Mapped[list]           = mapped_column(ARRAY(String), default=list, nullable=False, server_default="{}")
     github_issue_number:  Mapped[Optional[int]]  = mapped_column(Integer, nullable=True)
     is_deleted:           Mapped[bool]           = mapped_column(Boolean, default=False, nullable=False)
+
+    # ── ML Feature Columns ────────────────────────────────────────────────────
+    complexity_label:     Mapped[Optional[str]]  = mapped_column(String(20), nullable=True)   # easy | medium | hard
+    task_type:            Mapped[Optional[str]]  = mapped_column(String(30), nullable=True)   # frontend | backend | devops | testing | bug
+    story_points:         Mapped[Optional[int]]  = mapped_column(Integer, nullable=True)      # Fibonacci 1-13
+    required_skills:      Mapped[list]           = mapped_column(ARRAY(String), default=list, nullable=False, server_default="{}")
+    risk_factors:         Mapped[list]           = mapped_column(ARRAY(String), default=list, nullable=False, server_default="{}")
+    subtasks:             Mapped[list]           = mapped_column(ARRAY(String), default=list, nullable=False, server_default="{}")
+    dependencies:         Mapped[list]           = mapped_column(ARRAY(String), default=list, nullable=False, server_default="{}")  # task UUIDs
+    # ── Activity timestamps (training data pipeline) ─────────────────────────
+    completed_at:         Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    status_changed_at:    Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
     created_at:           Mapped[datetime]       = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at:           Mapped[datetime]       = mapped_column(
         DateTime(timezone=True),

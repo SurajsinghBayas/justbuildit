@@ -1,4 +1,5 @@
 from typing import List, Optional
+from datetime import datetime, timezone
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -7,6 +8,7 @@ from app.models.task import Task
 from app.models.project import Project
 from app.models.membership import Membership
 from app.models.github_integration import GitHubIntegration
+from app.models.activity_log import ActivityLog
 from app.schemas.task import TaskCreate, TaskUpdate
 from app.services.github_service import GitHubService
 
@@ -88,8 +90,54 @@ class TaskService:
         await self.db.refresh(task)
         return task
 
-    async def update_status(self, task_id: str, status: str) -> Task:
-        return await self.update(task_id, TaskUpdate(status=status))
+    async def update_status(self, task_id: str, status: str, user_id: str | None = None) -> Task:
+        """Update task status and write activity log + ML timestamps."""
+        task = await self.get(task_id)
+        if not task:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404, detail="Task not found")
+
+        old_status = task.status
+        now = datetime.now(timezone.utc)
+
+        # Calculate how long the task was in the previous status
+        time_in_status_hours: float | None = None
+        if task.status_changed_at:
+            delta = now - task.status_changed_at
+            time_in_status_hours = round(delta.total_seconds() / 3600, 2)
+
+        task.status = status
+        task.status_changed_at = now
+
+        # Record completion timestamp for ML training data
+        if status == "DONE":
+            task.completed_at = now
+
+        # Write activity log silently (non-blocking — errors are swallowed)
+        try:
+            log = ActivityLog(
+                organization_id=task.organization_id,
+                user_id=user_id,
+                action="task.status_changed",
+                entity_type="TASK",
+                entity_id=task.id,
+                metadata_={
+                    "from_status": old_status,
+                    "to_status": status,
+                    "time_in_status_hours": time_in_status_hours,
+                    "complexity_label": task.complexity_label,
+                    "story_points": task.story_points,
+                    "risk_factor_count": len(task.risk_factors) if task.risk_factors else 0,
+                },
+            )
+            self.db.add(log)
+        except Exception:
+            import logging
+            logging.getLogger(__name__).warning("Failed to write activity log for status change")
+
+        await self.db.commit()
+        await self.db.refresh(task)
+        return task
 
     async def delete(self, task_id: str) -> None:
         task = await self.get(task_id)

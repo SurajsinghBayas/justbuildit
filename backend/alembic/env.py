@@ -18,8 +18,11 @@ target_metadata = Base.metadata
 
 
 def get_url():
-    # Convert asyncpg to psycopg2 for Alembic's sync engine
-    return settings.DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://")
+    # Convert asyncpg URL to psycopg2-compatible sync URL for Alembic
+    url = settings.DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://")
+    # Neon uses ?ssl=require but psycopg2 requires sslmode=require
+    url = url.replace("?ssl=require", "?sslmode=require")
+    return url
 
 
 def run_migrations_offline() -> None:

@@ -100,13 +100,27 @@ class AIGenerateRequest(BaseModel):
     project_name: str
     project_description: Optional[str] = None
     count: int = 5
+    # ML context — used by Bedrock to produce richer, ML-optimized output
+    team_skills: List[str] = []
+    project_type: Optional[str] = None
+    current_modules: List[str] = []
+    sprint_remaining_days: Optional[int] = None
+    preferred_assignee_skills: List[str] = []
 
 
 class AIGeneratedTask(BaseModel):
     title: str
     description: str
-    priority: str           # LOW | MEDIUM | HIGH | CRITICAL
+    priority: str                           # LOW | MEDIUM | HIGH | CRITICAL
     estimated_time: Optional[float] = None  # hours
+    # ML feature fields
+    tags: List[str] = []
+    task_type: Optional[str] = None         # frontend|backend|devops|bug|testing
+    complexity_label: Optional[str] = None  # easy|medium|hard
+    required_skills: List[str] = []
+    risk_factors: List[str] = []
+    subtasks: List[str] = []
+    estimated_story_points: Optional[int] = None
 
 
 class AIGenerateResponse(BaseModel):
@@ -128,21 +142,50 @@ _MOCK_TASKS = [
 ]
 
 
-def _build_bedrock_prompt(project_name: str, description: str, count: int) -> str:
-    return f"""You are a senior software project manager. Generate exactly {count} actionable tasks for the project below.
+def _build_bedrock_prompt(
+    project_name: str,
+    description: str,
+    count: int,
+    team_skills: list,
+    project_type: str,
+    current_modules: list,
+    sprint_remaining_days: int | None,
+    preferred_assignee_skills: list,
+) -> str:
+    context_block = f"""
+Context:
+- Project Type: {project_type or 'Software Application'}
+- Team Skills: {', '.join(team_skills) if team_skills else 'Not specified'}
+- Current Modules: {', '.join(current_modules) if current_modules else 'None'}
+- Sprint Days Remaining: {sprint_remaining_days if sprint_remaining_days else 'Not specified'}
+- Preferred Assignee Skills: {', '.join(preferred_assignee_skills) if preferred_assignee_skills else 'Any'}
+"""
+    return f"""You are an AI assistant that converts project descriptions into structured engineering tasks optimized for downstream machine learning systems used in project management.
 
 Project Name: {project_name}
 Project Description: {description}
-
-Respond with ONLY a valid JSON array (no markdown, no commentary, no code fences), containing exactly {count} objects.
-Each object must have these exact keys:
-- "title": string (concise action phrase, starts with a verb, max 10 words)
-- "description": string (2-3 sentences, specific to this project)
+{context_block}
+Generate exactly {count} tasks. Respond with ONLY a valid JSON array (no markdown, no commentary, no code fences).
+Each object must have EXACTLY these keys:
+- "title": string (concise engineering action phrase, starts with a verb, max 10 words)
+- "description": string (2-3 sentences of specific technical detail for this project)
 - "priority": exactly one of "LOW", "MEDIUM", "HIGH", "CRITICAL"
-- "estimated_time": float (realistic estimate in hours)
+- "estimated_time": float (realistic hours to complete)
+- "tags": array of strings (relevant technical tags, e.g. ["Node.js", "REST API", "PostgreSQL"])
+- "task_type": exactly one of "frontend", "backend", "devops", "testing", "bug"
+- "complexity_label": exactly one of "easy", "medium", "hard"
+- "required_skills": array of strings (skills needed, inferred from team_skills where possible)
+- "risk_factors": array of strings (specific risks that could cause delay or failure, e.g. ["third-party API dependency", "no existing test coverage"])
+- "subtasks": array of strings (ordered step-by-step execution plan, 3-6 steps)
+- "estimated_story_points": integer from 1 to 13 (Fibonacci: 1,2,3,5,8,13)
 
-Priority distribution: 1-2 CRITICAL, 2-3 HIGH, 2-3 MEDIUM, 1-2 LOW.
-Cover phases: project setup, core feature development, testing, and deployment."""
+Rules:
+- Do not return explanations, only the JSON array
+- Use team_skills to infer required_skills — do not hallucinate technologies outside them unless necessary
+- Priority distribution: 1-2 CRITICAL, 2-3 HIGH, 2-3 MEDIUM, 1-2 LOW
+- risk_factors must reference real engineering risks (third-party APIs, auth complexity, data migration, etc.)
+- subtasks must be actionable and logically ordered"""
+
 
 
 @router.post("/ai-generate", response_model=AIGenerateResponse)
@@ -172,9 +215,14 @@ async def ai_generate_tasks(
         return AIGenerateResponse(tasks=[AIGeneratedTask(**t) for t in _MOCK_TASKS[:count]])
 
     prompt = _build_bedrock_prompt(
-        payload.project_name,
-        payload.project_description or "No description provided.",
-        payload.count,
+        project_name=payload.project_name,
+        description=payload.project_description or "No description provided.",
+        count=payload.count,
+        team_skills=payload.team_skills,
+        project_type=payload.project_type or "",
+        current_modules=payload.current_modules,
+        sprint_remaining_days=payload.sprint_remaining_days,
+        preferred_assignee_skills=payload.preferred_assignee_skills,
     )
 
     def _call_bedrock() -> str:
@@ -190,7 +238,7 @@ async def ai_generate_tasks(
             modelId=model_id,
             messages=[{"role": "user", "content": [{"text": prompt}]}],
             inferenceConfig={
-                "maxTokens": 2048,
+                "maxTokens": 4096,
                 "temperature": 0.7,
                 "topP": 0.9,
                 "stopSequences": [],
@@ -216,20 +264,34 @@ async def ai_generate_tasks(
 
         tasks_raw = json.loads(array_match.group())
 
-        # Sanitise priority values
+        # Sanitise and normalise all fields
         valid_priorities = {"LOW", "MEDIUM", "HIGH", "CRITICAL"}
+        valid_task_types = {"frontend", "backend", "devops", "testing", "bug"}
+        valid_complexity = {"easy", "medium", "hard"}
         for t in tasks_raw:
             if t.get("priority") not in valid_priorities:
                 t["priority"] = "MEDIUM"
-            # Ensure estimated_time is a float
+            if t.get("task_type") not in valid_task_types:
+                t["task_type"] = "backend"
+            if t.get("complexity_label") not in valid_complexity:
+                t["complexity_label"] = "medium"
             if "estimated_time" in t:
                 try:
                     t["estimated_time"] = float(t["estimated_time"])
                 except (TypeError, ValueError):
                     t["estimated_time"] = 4.0
+            if "estimated_story_points" in t:
+                try:
+                    t["estimated_story_points"] = int(t["estimated_story_points"])
+                except (TypeError, ValueError):
+                    t["estimated_story_points"] = 3
+            # Ensure list fields are actually lists
+            for list_field in ("tags", "required_skills", "risk_factors", "subtasks"):
+                if not isinstance(t.get(list_field), list):
+                    t[list_field] = []
 
         tasks = [AIGeneratedTask(**t) for t in tasks_raw[:payload.count]]
-        log.info(f"Bedrock returned {len(tasks)} tasks for project '{payload.project_name}'")
+        log.info(f"Bedrock returned {len(tasks)} ML-structured tasks for project '{payload.project_name}'")
         return AIGenerateResponse(tasks=tasks)
 
     except Exception as exc:
