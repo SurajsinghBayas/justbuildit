@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_db, get_current_user_id
 from app.core.security import create_access_token, create_refresh_token, decode_token
-from app.schemas.auth import LoginRequest, RegisterRequest, TokenResponse, RefreshRequest
+from app.schemas.auth import LoginRequest, RegisterRequest, TokenResponse, RefreshRequest, ProfileUpdate
 from app.services.auth_service import AuthService
 
 router = APIRouter()
@@ -50,6 +50,17 @@ async def me(user_id: str = Depends(get_current_user_id), db: AsyncSession = Dep
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     return {"id": user.id, "name": user.name, "email": user.email, "avatar_url": user.avatar_url}
+
+@router.patch("/me")
+async def update_me(payload: ProfileUpdate, user_id: str = Depends(get_current_user_id), db: AsyncSession = Depends(get_db)):
+    svc = AuthService(db)
+    user = await svc.update_profile(
+        user_id=user_id, 
+        name=payload.name, 
+        email=payload.email, 
+        password=payload.password
+    )
+    return {"id": user.id, "name": user.name, "email": user.email, "message": "Profile updated successfully"}
 
 
 @router.post("/logout")

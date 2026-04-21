@@ -1,7 +1,7 @@
 // Phase 3 & 4 — AI Insights & Sprint/Priority Re-balancer
 // Shown on the ProjectDetail page
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import apiClient from '@/api/client';
 import { predictSprintOutcome } from '@/api/aiClient';
 import { Card, CardContent } from '@/components/ui/card';

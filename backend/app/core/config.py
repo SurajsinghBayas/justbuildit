@@ -48,5 +48,14 @@ class Settings(BaseSettings):
     # AWS S3
     S3_BUCKET_NAME: str = ""
 
+    # SMTP
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_TLS: bool = True
+    SMTP_FROM_EMAIL: str = "noreply@justbuildit.ai"
+
+
 
 settings = Settings()

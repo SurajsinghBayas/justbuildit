@@ -97,6 +97,10 @@ class AddMemberRequest(BaseModel):
     email: str
     role: str = "MEMBER"
 
+class UpdateMemberRoleRequest(BaseModel):
+    role: str
+
+
 
 @router.post("/{org_id}/members", response_model=MemberDetailOut, status_code=status.HTTP_201_CREATED)
 async def add_member(
@@ -133,3 +137,40 @@ async def my_role_in_org(
     svc = OrganizationService(db)
     role = await svc.get_user_role(org_id, user_id)
     return {"role": role, "can_manage_members": role in CAN_MANAGE_MEMBERS}
+
+@router.patch("/{org_id}/members/{member_user_id}", response_model=MemberDetailOut)
+async def update_member_role(
+    org_id: str,
+    member_user_id: str,
+    payload: UpdateMemberRoleRequest,
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
+):
+    """Update a member's role. Only OWNER or LEADER can manage roles."""
+    svc = OrganizationService(db)
+    caller_role = await svc.get_user_role(org_id, user_id)
+    if caller_role not in CAN_MANAGE_MEMBERS:
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
+    
+    allowed_roles = CAN_ASSIGN_ROLE.get(caller_role, set())
+    if payload.role not in allowed_roles:
+        raise HTTPException(status_code=403, detail=f"Cannot assign role: {payload.role}")
+        
+    return await svc.update_member_role(org_id, member_user_id, payload.role)
+
+@router.delete("/{org_id}/members/{member_user_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_member(
+    org_id: str,
+    member_user_id: str,
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
+):
+    """Remove a member from the org. Self-removal is allowed, or OWNER/LEADER can remove others."""
+    svc = OrganizationService(db)
+    caller_role = await svc.get_user_role(org_id, user_id)
+    
+    if user_id != member_user_id and caller_role not in CAN_MANAGE_MEMBERS:
+        raise HTTPException(status_code=403, detail="Insufficient permissions to remove this member")
+        
+    await svc.remove_member(org_id, member_user_id)
+

@@ -1,30 +1,36 @@
-import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import apiClient from '@/api/client';
-import { Loader2 } from 'lucide-react';
+import apiClient from "@/api/client";
+import { Loader2 } from "lucide-react";
 
 export default function Register() {
   const navigate = useNavigate();
-  const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState("");
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    setError('');
+    setError("");
 
     try {
-      await apiClient.post('/auth/register', { name, email, password });
-      navigate('/login');
+      await apiClient.post("/auth/register", { name, email, password });
+      navigate("/login");
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Registration failed. Try again.');
+      setError(err.response?.data?.detail || "Registration failed. Try again.");
     } finally {
       setLoading(false);
     }
@@ -32,7 +38,10 @@ export default function Register() {
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col justify-center items-center p-4">
-      <Link to="/" className="absolute top-8 left-8 font-bold text-xl tracking-tighter text-gray-900">
+      <Link
+        to="/"
+        className="absolute top-8 left-8 font-bold text-xl tracking-tighter text-gray-900"
+      >
         justbuildit.
       </Link>
 
@@ -103,13 +112,16 @@ export default function Register() {
                 disabled={loading}
               >
                 {loading && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
-                {loading ? 'Creating account...' : 'Sign Up'}
+                {loading ? "Creating account..." : "Sign Up"}
               </Button>
             </form>
 
             <p className="mt-6 text-center text-sm text-gray-600 font-medium">
-              Already have an account?{' '}
-              <Link to="/login" className="font-semibold text-gray-900 hover:underline">
+              Already have an account?{" "}
+              <Link
+                to="/login"
+                className="font-semibold text-gray-900 hover:underline"
+              >
                 Log in
               </Link>
             </p>

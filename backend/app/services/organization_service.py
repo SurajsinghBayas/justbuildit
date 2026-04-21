@@ -139,6 +139,19 @@ class OrganizationService:
         self.db.add(membership)
         await self.db.commit()
         await self.db.refresh(membership)
+
+        # Notify via email (fire and forget)
+        try:
+            from app.core.email import notify_added_to_org
+            org = await self.get(org_id)
+            # Find inviter name (caller of this method)
+            # For now we use a generic placeholder or could pass it in. 
+            # Let's assume we don't have inviter name easily here without extra query.
+            # I will just use "A team member" for now or find it if user_id is passed.
+            await notify_added_to_org(user.email, org.name if org else "the organization", "A team member")
+        except:
+            pass
+
         return {
             "user_id": user.id,
             "organization_id": org_id,
@@ -148,3 +161,47 @@ class OrganizationService:
             "email": user.email,
             "avatar_url": user.avatar_url,
         }
+
+    async def remove_member(self, org_id: str, user_id: str) -> None:
+        result = await self.db.execute(
+            select(Membership).where(
+                Membership.organization_id == org_id,
+                Membership.user_id == user_id,
+            )
+        )
+        membership = result.scalar_one_or_none()
+        if membership:
+            if membership.role == "OWNER":
+                from fastapi import HTTPException
+                raise HTTPException(status_code=400, detail="Cannot remove the organization owner")
+            await self.db.delete(membership)
+            await self.db.commit()
+
+    async def update_member_role(self, org_id: str, user_id: str, role: str) -> dict:
+        from fastapi import HTTPException
+        result = await self.db.execute(
+            select(Membership, User)
+            .join(User, User.id == Membership.user_id)
+            .where(Membership.organization_id == org_id, Membership.user_id == user_id)
+        )
+        row = result.one_or_none()
+        if not row:
+            raise HTTPException(status_code=404, detail="Member not found")
+        
+        membership, user = row
+        if membership.role == "OWNER":
+            raise HTTPException(status_code=400, detail="Cannot change the role of the organization owner")
+            
+        membership.role = role
+        await self.db.commit()
+        await self.db.refresh(membership)
+        return {
+            "user_id": user.id,
+            "organization_id": org_id,
+            "role": role,
+            "joined_at": membership.joined_at,
+            "name": user.name,
+            "email": user.email,
+            "avatar_url": user.avatar_url,
+        }
+

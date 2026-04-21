@@ -77,17 +77,54 @@ class TaskService:
         self.db.add(task)
         await self.db.commit()
         await self.db.refresh(task)
+
+        if task.assigned_to:
+            import asyncio
+            asyncio.create_task(self._notify_assignment(task))
+
         return task
+
+    async def _notify_assignment(self, task: Task):
+        try:
+            from app.core.email import notify_task_assigned
+            from app.models.user import User
+            from app.models.project import Project
+            
+            res = await self.db.execute(select(User).where(User.id == task.assigned_to))
+            assignee = res.scalar_one_or_none()
+            
+            pres = await self.db.execute(select(Project).where(Project.id == task.project_id))
+            proj = pres.scalar_one_or_none()
+            
+            # Since we don't have the current "assigner" passed in easily, we use a generic reference
+            if assignee and assignee.email:
+                await notify_task_assigned(
+                    assignee.email, 
+                    task.title, 
+                    proj.name if proj else "Project", 
+                    "A team member"
+                )
+        except:
+            pass
+
 
     async def update(self, task_id: str, payload: TaskUpdate) -> Task:
         task = await self.get(task_id)
         if not task:
             from fastapi import HTTPException
             raise HTTPException(status_code=404, detail="Task not found")
+        
+        old_assignee = task.assigned_to
         for field, value in payload.model_dump(exclude_none=True).items():
             setattr(task, field, value)
+        
         await self.db.commit()
         await self.db.refresh(task)
+
+        if task.assigned_to and task.assigned_to != old_assignee:
+            import asyncio
+            asyncio.create_task(self._notify_assignment(task))
+
         return task
 
     async def update_status(self, task_id: str, status: str, user_id: str | None = None) -> Task:
