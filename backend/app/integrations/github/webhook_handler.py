@@ -171,8 +171,12 @@ async def _handle_push(payload: dict, integration: GitHubIntegration, db: AsyncS
         )
         db.add(github_event)
 
+        closing_numbers = _extract_closing_issue_numbers(message)
         issue_numbers = _extract_issue_numbers(message)
-        for num in issue_numbers:
+        
+        all_nums = set(closing_numbers + issue_numbers)
+
+        for num in all_nums:
             result = await db.execute(
                 select(Task).where(
                     Task.project_id == integration.project_id,
@@ -181,14 +185,24 @@ async def _handle_push(payload: dict, integration: GitHubIntegration, db: AsyncS
             )
             task = result.scalar_one_or_none()
             if task and task.status not in ["DONE"]:
-                task.status = "IN_PROGRESS"
+                if num in closing_numbers:
+                    task.status = "DONE"
+                    logger.info(f"Updated task #{num} to DONE due to closing keyword in commit {sha[:7]}")
+                else:
+                    task.status = "IN_PROGRESS"
+                    logger.info(f"Updated task #{num} to IN_PROGRESS due to commit {sha[:7]}")
                 db.add(task)
-                logger.info(f"Updated task #{num} to IN_PROGRESS due to commit {sha[:7]}")
 
     await db.commit()
 
 
 def _extract_issue_numbers(text: str) -> list[int]:
-    """Extract issue numbers formatted like #123."""
+    """Extract all issue numbers formatted like #123."""
     matches = re.findall(r'#(\d+)', text)
+    return [int(m) for m in set(matches)]
+
+def _extract_closing_issue_numbers(text: str) -> list[int]:
+    """Extract issue numbers formatted with closing keywords like 'fixes #123'."""
+    pattern = r'(?i)(?:close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved)[:\s]+#(\d+)'
+    matches = re.findall(pattern, text)
     return [int(m) for m in set(matches)]
