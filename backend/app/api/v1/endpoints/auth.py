@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 import secrets
@@ -21,11 +21,19 @@ async def register(payload: RegisterRequest, db: AsyncSession = Depends(get_db))
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)):
+async def login(payload: LoginRequest, request: Request, db: AsyncSession = Depends(get_db)):
     svc = AuthService(db)
     user = await svc.authenticate(payload.email, payload.password)
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+        
+    try:
+        from app.core.email import notify_login_alert
+        client_ip = request.client.host if request.client else "Unknown IP"
+        await notify_login_alert(user.email, user.name, ip_address=client_ip)
+    except Exception:
+        pass
+        
     return TokenResponse(
         access_token=create_access_token(user.id),
         refresh_token=create_refresh_token(user.id),
@@ -84,7 +92,7 @@ async def google_login():
 
 
 @router.get("/google/callback")
-async def google_callback(code: str, db: AsyncSession = Depends(get_db)):
+async def google_callback(code: str, request: Request, db: AsyncSession = Depends(get_db)):
     """Handle the OAuth2 callback from Google, upsert the user, and issue JWT tokens."""
     try:
         token_data = await exchange_code_for_token(code)
@@ -110,6 +118,13 @@ async def google_callback(code: str, db: AsyncSession = Depends(get_db)):
         name=name,
         avatar_url=avatar_url,
     )
+
+    try:
+        from app.core.email import notify_login_alert
+        client_ip = request.client.host if request.client else "Unknown IP"
+        await notify_login_alert(user.email, user.name, ip_address=client_ip)
+    except Exception:
+        pass
 
     jwt_access = create_access_token(user.id)
     jwt_refresh = create_refresh_token(user.id)

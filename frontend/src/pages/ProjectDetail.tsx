@@ -281,6 +281,15 @@ export default function ProjectDetail() {
     } catch {}
   };
 
+  const handleUpdateAssignee = async (taskId: string, newAssignee: string) => {
+    try {
+      const res = await apiClient.put(`/tasks/${taskId}`, {
+        assigned_to: newAssignee || null,
+      });
+      setTasks(tasks.map((t) => (t.id === taskId ? res.data : t)));
+    } catch {}
+  };
+
   const toggleAiTask = (i: number) => {
     setSelectedAiTasks((prev) => {
       const next = new Set(prev);
@@ -933,7 +942,6 @@ export default function ProjectDetail() {
                                 </div>
                               </div>
 
-                              {/* Status quick-change */}
                               <select
                                 value={task.status}
                                 onChange={(e) =>
@@ -944,6 +952,20 @@ export default function ProjectDetail() {
                                 {STATUSES.map((st) => (
                                   <option key={st} value={st}>
                                     {st.replace(/_/g, " ")}
+                                  </option>
+                                ))}
+                              </select>
+                              <select
+                                value={task.assigned_to || ""}
+                                onChange={(e) =>
+                                  handleUpdateAssignee(task.id, e.target.value)
+                                }
+                                className="mt-2 w-full text-[11px] font-medium bg-gray-50 border border-gray-100 rounded px-1.5 py-0.5 text-gray-600 cursor-pointer focus:outline-none"
+                              >
+                                <option value="">Unassigned</option>
+                                {orgMembers.map((m: any) => (
+                                  <option key={m.user_id} value={m.user_id}>
+                                    {m.name || m.email}
                                   </option>
                                 ))}
                               </select>
