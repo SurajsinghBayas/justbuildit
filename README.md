@@ -21,6 +21,8 @@ cp .env.example .env
 docker compose up --build
 ```
 
+Build by Suraj Bayas
+
 | Service      | URL                      |
 |--------------|--------------------------|
 | Frontend     | http://localhost:3000    |
