@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     APP_ENV: str = "development"
     API_V1_STR: str = "/api/v1"
     DEBUG: bool = True
+    BACKEND_PUBLIC_URL: str = "http://localhost:8002"  # Change to your ngrok URL locally
 
     # Database
     DATABASE_URL: str = "postgresql+asyncpg://postgres:password@localhost:5432/justbuildit"

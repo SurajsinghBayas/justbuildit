@@ -142,7 +142,7 @@ async def connect_github_repo(
     webhook_secret = payload.webhook_secret or settings.GITHUB_WEBHOOK_SECRET or "justbuildit-webhook"
 
     # Register webhook on the repo via GitHub API
-    webhook_url = f"https://justbuildit.example.com/api/v1/github/webhook"  # replace with real domain
+    webhook_url = f"{settings.BACKEND_PUBLIC_URL}/api/v1/github/webhook"
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
             hook_resp = await client.post(
