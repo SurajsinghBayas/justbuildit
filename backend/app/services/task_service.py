@@ -6,7 +6,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.task import Task
 from app.models.project import Project
 from app.models.membership import Membership
+from app.models.github_integration import GitHubIntegration
 from app.schemas.task import TaskCreate, TaskUpdate
+from app.services.github_service import GitHubService
 
 
 class TaskService:
@@ -51,6 +53,25 @@ class TaskService:
 
     async def create(self, payload: TaskCreate) -> Task:
         task = Task(**payload.model_dump())
+        
+        # Check if project has a GitHub integration
+        int_result = await self.db.execute(
+            select(GitHubIntegration).where(GitHubIntegration.project_id == payload.project_id)
+        )
+        integration = int_result.scalar_one_or_none()
+        
+        if integration and integration.access_token:
+            try:
+                gh = GitHubService(integration.access_token)
+                owner, repo = integration.repo_name.split("/")
+                gh_body = payload.description or ""
+                gh_body += "\n\n*(Exported via JustBuildIt)*"
+                issue_data = await gh.create_issue(owner, repo, payload.title, gh_body)
+                task.github_issue_number = issue_data.get("number")
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).error(f"Failed to create GitHub issue for task: {e}")
+
         self.db.add(task)
         await self.db.commit()
         await self.db.refresh(task)

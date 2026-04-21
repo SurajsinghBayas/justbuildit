@@ -576,7 +576,12 @@ export default function ProjectDetail() {
                         <Card key={task.id} className="sleek-card group">
                           <CardContent className="p-3">
                             <div className="flex items-start justify-between gap-2">
-                              <p className="text-sm font-semibold text-gray-900 leading-snug flex-1">
+                              <p className="text-sm font-semibold text-gray-900 leading-snug flex-1 flex items-center gap-1.5">
+                                {task.github_issue_number && (
+                                  <span className="text-[10px] font-bold text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded-sm shrink-0">
+                                    #{task.github_issue_number}
+                                  </span>
+                                )}
                                 {task.title}
                               </p>
                               <button
