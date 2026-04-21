@@ -4,7 +4,7 @@ import apiClient from '@/api/client';
 import { Button } from '@/components/ui/button';
 import {
   LayoutDashboard, Briefcase, CheckSquare, Building,
-  LogOut, ChevronDown, Settings, Bell, Sun, Moon
+  LogOut, ChevronDown, Settings, Bell
 } from 'lucide-react';
 
 

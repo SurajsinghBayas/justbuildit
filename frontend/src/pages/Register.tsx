@@ -13,7 +13,7 @@ import { Label } from "@/components/ui/label";
 import apiClient from "@/api/client";
 import { Loader2 } from "lucide-react";
 
-const BACKEND_URL = "http://localhost:8002";
+const BACKEND_URL = (import.meta.env.VITE_API_URL || 'http://localhost:8002/api/v1').replace('/api/v1', '');
 
 function GoogleIcon() {
   return (
