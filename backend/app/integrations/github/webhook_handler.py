@@ -14,8 +14,21 @@ async def _get_integration(payload: dict, db: AsyncSession):
     repo_name = payload.get("repository", {}).get("full_name")
     if not repo_name:
         return None
-    result = await db.execute(select(GitHubIntegration).where(GitHubIntegration.repo_name == repo_name))
-    return result.scalar_one_or_none()
+    # Case-insensitive match to handle GitHub casing differences
+    from sqlalchemy import func
+    result = await db.execute(
+        select(GitHubIntegration).where(
+            func.lower(GitHubIntegration.repo_name) == repo_name.lower()
+        )
+    )
+    integrations = result.scalars().all()
+    if not integrations:
+        return None
+    # Prefer the one with an access token (active integration)
+    for i in integrations:
+        if i.access_token:
+            return i
+    return integrations[0]
 
 
 async def handle_github_event(event: str, payload: dict, db: AsyncSession) -> None:
