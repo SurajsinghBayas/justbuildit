@@ -1,211 +1,241 @@
 """
-XGBoost-backed recommendation endpoints.
-Falls back to calibrated heuristics when models are not yet trained.
+Recommendation endpoints — Siamese MLP (assignee) + LightGBM Ranker (next-task).
+
+Assignee flow:
+  task text → TextEncoder → task_emb (32)
+  dev skills → TextEncoder → dev_emb (32)
+  cosine_sim = dot(task_emb, dev_emb)
+  X = [task_emb | dev_emb | |task-dev| | cosine_sim | dev_struct(3)]  → MLP
+
+Next-task flow:
+  [(task text → emb, cosine_sim with user_emb) for each task]
+  + structured task features + sequence features + graph features
+  → LightGBM Ranker → sorted scores
 """
 import numpy as np
 from datetime import datetime, timezone
-from pydantic import BaseModel
 from typing import List, Optional
 from fastapi import APIRouter
+from pydantic import BaseModel
 
-from app.utils.model_loader import get_assignee_model, get_next_task_model
+from app.utils.model_loader import get_text_encoder, get_assignee_model, get_next_task_model
+from app.encoders.text_encoder import build_task_text, build_skill_text
+from app.encoders.sequence_encoder import SequenceEncoder, SEQ_DIM
+from app.encoders.graph_encoder import GraphEncoder, GRAPH_DIM
 
 router = APIRouter()
 
+_seq_enc   = SequenceEncoder()
+_graph_enc = GraphEncoder()
+
 _COMPLEXITY_MAP = {"easy": 0, "medium": 1, "hard": 2}
-_PRIORITY_MAP = {"CRITICAL": 3, "HIGH": 2, "MEDIUM": 1, "LOW": 0}
+_PRIORITY_MAP   = {"LOW": 0, "MEDIUM": 1, "HIGH": 2, "CRITICAL": 3}
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 4. /recommend/assignee
+# 4. /recommend/assignee  — Siamese MLP
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TeamMember(BaseModel):
-    id: str
-    name: str
-    skills: List[str] = []
-    open_tasks: int = 0
-    past_success_rate: float = 0.75    # 0–1
-    avg_completion_speed: float = 1.0  # multiplier vs estimate
+    id:                  str
+    name:                str
+    skills:              List[str] = []
+    open_tasks:          int       = 0
+    past_success_rate:   float     = 0.75
+    avg_completion_speed:float     = 1.0
 
 
 class AssigneeRequest(BaseModel):
-    task_id: Optional[str] = None
-    required_skills: List[str] = []
-    tags: List[str] = []
-    complexity_label: str = "medium"
-    team_members: List[TeamMember] = []
+    task_id:          Optional[str] = None
+    title:            str           = ""
+    description:      str           = ""
+    required_skills:  List[str]     = []
+    tags:             List[str]     = []
+    complexity_label: str           = "medium"
+    team_members:     List[TeamMember] = []
 
 
 @router.post("/assignee")
 async def recommend_assignee(payload: AssigneeRequest):
-    """
-    Ranks each team member using XGBoostClassifier success probability.
-    Features: skill_match_score, dev_load, past_success_rate,
-              avg_completion_speed, complexity
-    """
     if not payload.team_members:
-        return {
-            "task_id": payload.task_id,
-            "assignee_id": None, "name": None,
-            "reason": "No team members provided", "score": 0,
-        }
+        return {"task_id": payload.task_id, "assignee_id": None,
+                "name": None, "reason": "No team members provided", "score": 0}
 
-    query_skills = set(s.lower() for s in payload.required_skills + payload.tags)
-    complexity = float(_COMPLEXITY_MAP.get(payload.complexity_label, 1))
+    enc = get_text_encoder()
     model = get_assignee_model()
 
-    scores = []
-    for member in payload.team_members:
-        member_skills = set(s.lower() for s in member.skills)
-        skill_match = (
-            len(member_skills & query_skills) / len(query_skills)
-            if query_skills else 0.5
-        )
+    task_text = build_task_text(payload.title, payload.description,
+                                payload.required_skills + payload.tags)
+    task_emb  = (enc.encode(task_text if task_text.strip() else "engineering task")
+                 .ravel() if enc.pipeline else np.zeros(32, dtype=np.float32))
 
-        features = np.array([[
-            skill_match,
-            float(member.open_tasks),
-            float(member.past_success_rate),
-            float(member.avg_completion_speed),
-            complexity,
-        ]])
+    complexity = float(_COMPLEXITY_MAP.get(payload.complexity_label, 1))
+    query_skills = set(s.lower() for s in payload.required_skills + payload.tags)
+
+    scored = []
+    for member in payload.team_members:
+        dev_text = build_skill_text(member.skills)
+        dev_emb  = (enc.encode(dev_text if dev_text else "developer")
+                    .ravel() if enc.pipeline else np.zeros(32, dtype=np.float32))
+
+        # Siamese feature vector
+        cosine_sim = float(np.dot(task_emb, dev_emb))  # both L2-normed
+        diff       = np.abs(task_emb - dev_emb)
+        dev_struct = np.array([float(member.open_tasks),
+                               float(member.past_success_rate),
+                               float(member.avg_completion_speed)], dtype=np.float32)
+
+        X = np.concatenate([task_emb, dev_emb, diff, [cosine_sim], dev_struct]).reshape(1, -1)
 
         if model is not None:
-            score = float(model.predict_proba(features)[0][1])  # P(success)
+            score = float(model.predict_proba(X)[0][1])
+            backend = "siamese_mlp"
         else:
-            score = (
-                skill_match * 0.45
-                + member.past_success_rate * 0.30
-                + member.avg_completion_speed / 2 * 0.15
-                - member.open_tasks / 15 * 0.20
-                - complexity / 2 * 0.10
-            )
+            # Fallback: cosine similarity + workload penalty
+            member_skills = set(s.lower() for s in member.skills)
+            skill_match   = (len(member_skills & query_skills) / max(len(query_skills), 1))
+            score = (skill_match * 0.45 + member.past_success_rate * 0.30
+                     + member.avg_completion_speed / 2 * 0.15
+                     - member.open_tasks / 15 * 0.20)
+            backend = "heuristic"
 
-        matched = member_skills & query_skills
-        scores.append((score, member, matched))
+        member_skills_set = set(s.lower() for s in member.skills)
+        matched = member_skills_set & query_skills
+        scored.append((score, member, matched))
 
-    scores.sort(key=lambda x: x[0], reverse=True)
-    best_score, best, matched_skills = scores[0]
+    scored.sort(key=lambda x: x[0], reverse=True)
+    best_score, best, matched_skills = scored[0]
 
     reason = (
-        f"Best skill match ({len(matched_skills)}/{max(len(query_skills),1)} skills: {', '.join(list(matched_skills)[:3])})"
+        f"Best text similarity + skill match ({len(matched_skills)}/{max(len(query_skills),1)} skills)"
         if matched_skills
-        else f"Highest predicted success rate ({round(best_score*100)}%)"
+        else f"Highest Siamese MLP success probability ({round(best_score*100)}%)"
     )
 
     return {
-        "task_id": payload.task_id,
-        "assignee_id": best.id,
-        "name": best.name,
-        "score": round(best_score, 4),
-        "matched_skills": list(matched_skills),
-        "open_tasks": best.open_tasks,
-        "reason": reason,
-        "model": "xgboost" if model is not None else "heuristic",
+        "task_id":       payload.task_id,
+        "assignee_id":   best.id,
+        "name":          best.name,
+        "score":         round(best_score, 4),
+        "matched_skills":list(matched_skills),
+        "open_tasks":    best.open_tasks,
+        "reason":        reason,
+        "model":         backend,
         "all_scores": [
             {"id": m.id, "name": m.name, "score": round(s, 4)}
-            for s, m, _ in scores
+            for s, m, _ in scored
         ],
     }
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 5. /recommend/next-task
+# 5. /recommend/next-task  — LightGBM Ranker
 # ══════════════════════════════════════════════════════════════════════════════
 
 class NextTaskItem(BaseModel):
-    id: str
-    title: str
-    priority: str = "MEDIUM"
-    status: str = "TODO"
-    required_skills: List[str] = []
-    story_points: int = 3
-    complexity_label: str = "medium"
-    dependency_blocked: bool = False
-    created_at: Optional[str] = None  # ISO string
+    id:                 str
+    title:              str           = ""
+    priority:           str           = "MEDIUM"
+    status:             str           = "TODO"
+    required_skills:    List[str]     = []
+    tags:               List[str]     = []
+    story_points:       int           = 3
+    complexity_label:   str           = "medium"
+    dependency_blocked: bool          = False
+    created_at:         Optional[str] = None
+    # Optional enrichment
+    status_events:      List[dict]    = []
+    dependency_edges:   List[List[str]] = []
 
 
 class NextTaskRequest(BaseModel):
-    user_id: str
-    user_skills: List[str] = []
-    project_tasks: List[NextTaskItem] = []
+    user_id:              str
+    user_skills:          List[str]         = []
+    project_tasks:        List[NextTaskItem] = []
+    dependency_edges:     List[List[str]]   = []   # global edge list for the sprint
 
 
 @router.post("/next-task")
 async def recommend_next_task(payload: NextTaskRequest):
-    """
-    Ranks available tasks using XGBoostClassifier pick-probability.
-    Features: priority, skill_match, dep_blocked, complexity, story_points, days_since_created
-    """
-    candidates = [
-        t for t in payload.project_tasks
-        if t.status in ("TODO", "IN_PROGRESS")
-    ]
+    candidates = [t for t in payload.project_tasks
+                  if t.status in ("TODO", "IN_PROGRESS")]
 
     if not candidates:
-        return {"task_id": None, "title": None, "reason": "No available tasks"}
+        return {"task_id": None, "title": None,
+                "reason": "No available tasks", "ranked_tasks": []}
 
-    user_skills = set(s.lower() for s in payload.user_skills)
+    enc   = get_text_encoder()
     model = get_next_task_model()
+
+    # User skill embedding
+    user_text = build_skill_text(payload.user_skills)
+    user_emb  = (enc.encode(user_text if user_text else "developer")
+                 .ravel() if enc.pipeline else np.zeros(32, dtype=np.float32))
+
+    # Build shared graph for all project tasks (once)
+    all_edges = [tuple(e) for e in payload.dependency_edges]
+    graph_map: dict = {}
+    if all_edges:
+        graph_map = _graph_enc.encode_all(all_edges, [t.id for t in candidates])
+
     now = datetime.now(timezone.utc)
 
-    scored = []
+    all_rows = []
     for task in candidates:
-        required = set(s.lower() for s in task.required_skills)
-        skill_match = (
-            len(user_skills & required) / len(required)
-            if required else 0.5
-        )
-        priority_num = float(_PRIORITY_MAP.get(task.priority, 1))
-        complexity_num = float(_COMPLEXITY_MAP.get(task.complexity_label, 1))
-        blocked = float(task.dependency_blocked)
+        task_text = build_task_text(task.title, tags=task.required_skills + task.tags)
+        task_emb  = (enc.encode(task_text if task_text else "engineering task")
+                     .ravel() if enc.pipeline else np.zeros(32, dtype=np.float32))
 
-        # Days since created
+        cosine_sim = float(np.dot(task_emb, user_emb))
+
+        priority   = float(_PRIORITY_MAP.get(task.priority, 1))
+        blocked    = float(task.dependency_blocked)
+        complexity = float(_COMPLEXITY_MAP.get(task.complexity_label, 1))
+        sp         = float(task.story_points)
+
         days_created = 0.0
         if task.created_at:
             try:
-                created = datetime.fromisoformat(task.created_at.replace("Z", "+00:00"))
-                days_created = max((now - created).days, 0)
+                created     = datetime.fromisoformat(task.created_at.replace("Z", "+00:00"))
+                days_created= max((now - created).days, 0)
             except Exception:
                 pass
 
-        features = np.array([[
-            priority_num,
-            skill_match,
-            blocked,
-            complexity_num,
-            float(task.story_points),
-            float(min(days_created, 30)),
-        ]])
+        struct6 = np.array([priority, cosine_sim, blocked, complexity,
+                             sp, min(days_created, 30)], dtype=np.float32)
 
-        if model is not None:
-            score = float(model.predict_proba(features)[0][1])
-        else:
-            score = (
-                priority_num / 3 * 0.40
-                + skill_match * 0.30
-                - blocked * 0.20
-                - complexity_num / 2 * 0.05
-                + min(days_created, 30) / 30 * 0.05
-            )
+        seq_feats   = _seq_enc.encode(task.status_events)                     # (10,)
+        graph_feats = graph_map.get(task.id, np.zeros(GRAPH_DIM, dtype=np.float32))
 
-        scored.append((score, task))
+        row = np.concatenate([struct6, seq_feats, graph_feats])               # (26,)
+        all_rows.append(row)
 
-    scored.sort(key=lambda x: x[0], reverse=True)
-    best_score, best = scored[0]
+    X = np.vstack(all_rows)  # (n_tasks, 26)
+
+    if model is not None:
+        scores  = model.predict(X)
+        backend = "lightgbm_ranker"
+    else:
+        scores  = np.array([
+            r[0] / 3 * 0.40 + r[1] * 0.30 - r[2] * 0.20 - r[3] / 2 * 0.05
+            for r in X
+        ])
+        backend = "heuristic"
+
+    ranked = sorted(zip(scores, candidates), key=lambda x: x[0], reverse=True)
+    best_score, best = ranked[0]
 
     return {
-        "task_id": best.id,
-        "title": best.title,
-        "priority": best.priority,
+        "task_id":          best.id,
+        "title":            best.title,
+        "priority":         best.priority,
         "complexity_label": best.complexity_label,
-        "story_points": best.story_points,
-        "score": round(best_score, 4),
-        "reason": "Highest ML pick-probability based on priority, skill match, and dependencies",
-        "model": "xgboost" if model is not None else "heuristic",
+        "story_points":     best.story_points,
+        "score":            round(float(best_score), 4),
+        "reason":           "LightGBM ranker: priority × skill match × sequence × graph",
+        "model":            backend,
         "ranked_tasks": [
-            {"id": t.id, "title": t.title, "score": round(s, 4)}
-            for s, t in scored[:5]
+            {"id": t.id, "title": t.title, "score": round(float(s), 4)}
+            for s, t in ranked[:5]
         ],
     }

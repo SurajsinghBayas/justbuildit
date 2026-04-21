@@ -7,11 +7,13 @@ import Navbar from '@/components/Navbar';
 import {
   CheckSquare, Plus, Loader2, Clock, AlertCircle,
   Circle, CheckCircle2, AlertTriangle, Zap, Sparkles, Filter,
-  Briefcase
+  Briefcase, Bot
 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import AIPredictionBadges from '@/components/AIPredictionBadges';
+import AITaskChat from '@/components/AITaskChat';
 
 const PRIORITIES = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'];
 const STATUSES = ['TODO', 'IN_PROGRESS', 'IN_REVIEW', 'DONE'];
@@ -59,6 +61,24 @@ export default function Tasks() {
   const [selectedAi, setSelectedAi] = useState<Set<number>>(new Set());
   const [aiStep, setAiStep] = useState<'setup' | 'review'>('setup');
   const [isSavingAi, setIsSavingAi] = useState(false);
+
+  // Phase 5C - Layer A Inputs
+  const [aiProjectType, setAiProjectType] = useState('');
+  const [aiTeamSkills, setAiTeamSkills] = useState('');
+  const [aiModules, setAiModules] = useState('');
+  const [aiSprintDays, setAiSprintDays] = useState('');
+  const [aiAssigneeHint, setAiAssigneeHint] = useState('');
+
+  const updateAiPreview = (idx: number, field: string, value: any) => {
+    setAiPreview(prev => {
+      const next = [...prev];
+      next[idx] = { ...next[idx], [field]: value };
+      return next;
+    });
+  };
+
+  // AI Task Chat
+  const [chatTask, setChatTask] = useState<any>(null);
 
   async function fetchData() {
     setLoading(true);
@@ -115,6 +135,11 @@ export default function Tasks() {
         project_name: proj.name,
         project_description: proj.description,
         count: aiCount,
+        project_type: aiProjectType || undefined,
+        team_skills: aiTeamSkills ? aiTeamSkills.split(',').map(s => s.trim()) : [],
+        current_modules: aiModules ? aiModules.split(',').map(s => s.trim()) : [],
+        sprint_remaining_days: aiSprintDays ? parseInt(aiSprintDays) : undefined,
+        preferred_assignee_skills: aiAssigneeHint ? aiAssigneeHint.split(',').map(s => s.trim()) : [],
       });
       setAiPreview(res.data.tasks);
       setSelectedAi(new Set(res.data.tasks.map((_: any, i: number) => i)));
@@ -203,25 +228,75 @@ export default function Tasks() {
                       </div>
                     ) : (
                       <>
-                        <div className="space-y-2">
-                          <Label>Select Project</Label>
-                          <select value={aiProject} onChange={e => setAiProject(e.target.value)}
-                            className="w-full h-10 rounded-md border border-gray-200 px-3 text-sm bg-white focus:ring-2 focus:ring-gray-900 outline-none">
-                            {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                          </select>
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Number of tasks</Label>
-                          <div className="flex items-center gap-2">
-                            {[3, 5, 7, 10].map(n => (
-                              <button key={n} onClick={() => setAiCount(n)}
-                                className={`w-12 h-10 rounded-lg border text-sm font-semibold transition-all ${aiCount === n ? 'bg-gray-900 text-white border-gray-900' : 'border-gray-200 hover:border-gray-400'}`}>
-                                {n}
-                              </button>
-                            ))}
+                        <div className="space-y-4">
+                          <div className="space-y-2">
+                            <Label>Select Project</Label>
+                            <select value={aiProject} onChange={e => setAiProject(e.target.value)}
+                              className="w-full h-10 rounded-md border border-gray-200 px-3 text-sm bg-white focus:ring-2 focus:ring-gray-900 outline-none">
+                              {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                            </select>
+                          </div>
+                          
+                          <div className="space-y-2">
+                            <Label>Number of tasks</Label>
+                            <div className="flex items-center gap-2">
+                              {[3, 5, 7, 10].map(n => (
+                                <button key={n} onClick={() => setAiCount(n)}
+                                  className={`w-12 h-10 rounded-lg border text-sm font-semibold transition-all ${aiCount === n ? 'bg-gray-900 text-white border-gray-900' : 'border-gray-200 hover:border-gray-400'}`}>
+                                  {n}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-1">
+                              <Label className="text-xs">Project Type</Label>
+                              <input 
+                                value={aiProjectType} onChange={(e) => setAiProjectType(e.target.value)}
+                                placeholder="e.g. SaaS, E-commerce"
+                                className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-purple-400"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-xs">Sprint Days Remaining</Label>
+                              <input 
+                                type="number" value={aiSprintDays} onChange={(e) => setAiSprintDays(e.target.value)}
+                                placeholder="e.g. 5"
+                                className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-purple-400"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="space-y-1">
+                            <Label className="text-xs">Team Skills (comma separated)</Label>
+                            <input 
+                              value={aiTeamSkills} onChange={(e) => setAiTeamSkills(e.target.value)}
+                              placeholder="Go, React, AWS"
+                              className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-purple-400"
+                            />
+                          </div>
+
+                          <div className="space-y-1">
+                            <Label className="text-xs">Target Modules</Label>
+                            <input 
+                              value={aiModules} onChange={(e) => setAiModules(e.target.value)}
+                              placeholder="Auth, API"
+                              className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-purple-400"
+                            />
+                          </div>
+
+                          <div className="space-y-1">
+                            <Label className="text-xs">Preferred Assignee Skills</Label>
+                            <input 
+                              value={aiAssigneeHint} onChange={(e) => setAiAssigneeHint(e.target.value)}
+                              placeholder="Frontend, UX"
+                              className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-purple-400"
+                            />
                           </div>
                         </div>
-                        <Button onClick={handleAiGenerate} disabled={isGenerating || !aiProject} className="w-full bg-purple-600 hover:bg-purple-700 text-white gap-2">
+
+                        <Button onClick={handleAiGenerate} disabled={isGenerating || !aiProject} className="w-full bg-purple-600 hover:bg-purple-700 text-white gap-2 mt-4">
                           {isGenerating ? <><Loader2 className="w-4 h-4 animate-spin" /> Generating...</> : <><Sparkles className="w-4 h-4" /> Generate {aiCount} Tasks</>}
                         </Button>
                       </>
@@ -238,21 +313,45 @@ export default function Tasks() {
                         const pc = priorityConfig[t.priority] || priorityConfig.MEDIUM;
                         const sel = selectedAi.has(i);
                         return (
-                          <div key={i} onClick={() => toggleAiTask(i)}
-                            className={`p-3 rounded-lg border cursor-pointer transition-all ${sel ? 'border-gray-900 bg-gray-50' : 'border-gray-200 bg-white opacity-50'}`}>
+                          <div key={i} className={`p-3 rounded-lg border transition-all ${sel ? 'border-gray-900 bg-gray-50' : 'border-gray-200 bg-white opacity-50'}`}>
                             <div className="flex items-start gap-3">
-                              <div className={`mt-0.5 w-4 h-4 rounded border-2 flex-shrink-0 flex items-center justify-center ${sel ? 'bg-gray-900 border-gray-900' : 'border-gray-300'}`}>
-                                {sel && <CheckCircle2 className="w-3 h-3 text-white" />}
+                              <div className="mt-1 cursor-pointer flex-shrink-0" onClick={() => toggleAiTask(i)}>
+                                <div className={`w-4 h-4 rounded border-2 flex items-center justify-center ${sel ? 'bg-gray-900 border-gray-900' : 'border-gray-300'}`}>
+                                  {sel && <CheckCircle2 className="w-3 h-3 text-white" />}
+                                </div>
                               </div>
-                              <div className="flex-1 min-w-0">
-                                <p className="text-sm font-semibold text-gray-900">{t.title}</p>
-                                <p className="text-xs text-gray-400 mt-0.5 line-clamp-2">{t.description}</p>
-                              </div>
-                              <div className="flex flex-col items-end gap-1 flex-shrink-0">
-                                <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded border flex items-center gap-0.5 ${pc.color}`}>
-                                  {pc.icon}{t.priority}
-                                </span>
-                                {t.estimated_time && <span className="text-[10px] text-gray-400">{t.estimated_time}h</span>}
+                              <div className="flex-1 min-w-0 space-y-2">
+                                <input
+                                  value={t.title}
+                                  onChange={(e) => updateAiPreview(i, 'title', e.target.value)}
+                                  className="w-full text-sm font-semibold text-gray-900 bg-transparent border-b border-transparent hover:border-gray-300 focus:border-gray-900 focus:outline-none truncate"
+                                />
+                                <div className="flex gap-2">
+                                  <textarea
+                                    value={t.description || ''}
+                                    onChange={(e) => updateAiPreview(i, 'description', e.target.value)}
+                                    rows={2}
+                                    className="w-full text-xs text-gray-600 bg-white border border-gray-200 rounded p-1.5 focus:outline-none focus:border-gray-400 custom-scrollbar resize-none"
+                                  />
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <select 
+                                    value={t.priority}
+                                    onChange={(e) => updateAiPreview(i, 'priority', e.target.value)}
+                                    className="text-[10px] uppercase font-bold px-1 py-0.5 rounded border bg-white focus:outline-none"
+                                  >
+                                    {['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'].map(p => <option key={p} value={p}>{p}</option>)}
+                                  </select>
+                                  <div className="flex items-center gap-1">
+                                    <Label className="text-[10px] text-gray-500">Est. hours:</Label>
+                                    <input 
+                                      type="number"
+                                      value={t.estimated_time || ''}
+                                      onChange={(e) => updateAiPreview(i, 'estimated_time', parseFloat(e.target.value))}
+                                      className="w-12 text-[10px] px-1 py-0.5 border rounded focus:outline-none"
+                                    />
+                                  </div>
+                                </div>
                               </div>
                             </div>
                           </div>
@@ -394,6 +493,17 @@ export default function Tasks() {
                           </span>
                         )}
                       </div>
+                      
+                      <div className="mt-1 flex items-center gap-2">
+                        <AIPredictionBadges task={t} />
+                        <button
+                          onClick={() => setChatTask(t)}
+                          className="ml-auto inline-flex items-center justify-center gap-1.5 h-7 px-2.5 rounded-md border border-violet-200 bg-violet-50 text-[11px] font-semibold text-violet-700 hover:bg-violet-100 transition-colors shrink-0"
+                        >
+                          <Bot className="w-3.5 h-3.5" />
+                          Chat
+                        </button>
+                      </div>
                     </div>
                     <select
                       value={t.status}
@@ -427,6 +537,14 @@ export default function Tasks() {
           </div>
         )}
       </main>
+
+      {chatTask && (
+        <AITaskChat
+          task={chatTask}
+          open={!!chatTask}
+          onClose={() => setChatTask(null)}
+        />
+      )}
     </div>
   );
 }

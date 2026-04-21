@@ -37,3 +37,24 @@ class AuthService:
     async def get_by_id(self, user_id: str) -> Optional[User]:
         result = await self.db.execute(select(User).where(User.id == user_id))
         return result.scalar_one_or_none()
+
+    async def update_profile(self, user_id: str, name: Optional[str] = None, email: Optional[str] = None, password: Optional[str] = None) -> User:
+        user = await self.get_by_id(user_id)
+        if not user:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        if name:
+            user.name = name
+        if email and email != user.email:
+            existing = await self.get_by_email(email)
+            if existing:
+                from fastapi import HTTPException
+                raise HTTPException(status_code=400, detail="Email already in use")
+            user.email = email
+        if password:
+            user.password_hash = hash_password(password)
+            
+        await self.db.commit()
+        await self.db.refresh(user)
+        return user

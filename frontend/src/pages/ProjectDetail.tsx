@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import apiClient from '@/api/client';
 import { Button } from '@/components/ui/button';
@@ -12,24 +12,27 @@ import { ShowMoreText } from '@/components/ui/ShowMoreText';
 import {
   ArrowLeft, Briefcase, CheckSquare, Plus, Loader2, Sparkles,
   Clock, AlertTriangle, Trash2, GitBranch,
-  CheckCircle2, Circle, AlertCircle, Zap
+  CheckCircle2, Circle, AlertCircle, Zap, Bot, BarChart3
 } from 'lucide-react';
+import AIPredictionBadges from '@/components/AIPredictionBadges';
+import AITaskChat from '@/components/AITaskChat';
+import AIInsightsPanel from '@/components/AIInsightsPanel';
 
 const PRIORITIES = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'];
 const STATUSES = ['TODO', 'IN_PROGRESS', 'IN_REVIEW', 'DONE'];
 
 const priorityConfig: Record<string, { color: string; IconComp: React.FC<{ className?: string }> }> = {
-  LOW:      { color: 'bg-slate-100 text-slate-600 border-slate-200', IconComp: Circle },
-  MEDIUM:   { color: 'bg-blue-50 text-blue-600 border-blue-200',     IconComp: AlertCircle },
-  HIGH:     { color: 'bg-orange-50 text-orange-600 border-orange-200', IconComp: AlertTriangle },
-  CRITICAL: { color: 'bg-red-50 text-red-600 border-red-200',        IconComp: Zap },
+  LOW: { color: 'bg-slate-100 text-slate-600 border-slate-200', IconComp: Circle },
+  MEDIUM: { color: 'bg-blue-50 text-blue-600 border-blue-200', IconComp: AlertCircle },
+  HIGH: { color: 'bg-orange-50 text-orange-600 border-orange-200', IconComp: AlertTriangle },
+  CRITICAL: { color: 'bg-red-50 text-red-600 border-red-200', IconComp: Zap },
 };
 
 const statusConfig: Record<string, { color: string; IconComp: React.FC<{ className?: string }> }> = {
-  TODO:        { color: 'bg-gray-100 text-gray-600',       IconComp: Circle },
-  IN_PROGRESS: { color: 'bg-blue-100 text-blue-700',       IconComp: Clock },
-  IN_REVIEW:   { color: 'bg-purple-100 text-purple-700',   IconComp: AlertCircle },
-  DONE:        { color: 'bg-emerald-100 text-emerald-700', IconComp: CheckCircle2 },
+  TODO: { color: 'bg-gray-100 text-gray-600', IconComp: Circle },
+  IN_PROGRESS: { color: 'bg-blue-100 text-blue-700', IconComp: Clock },
+  IN_REVIEW: { color: 'bg-purple-100 text-purple-700', IconComp: AlertCircle },
+  DONE: { color: 'bg-emerald-100 text-emerald-700', IconComp: CheckCircle2 },
 };
 
 export default function ProjectDetail() {
@@ -40,8 +43,9 @@ export default function ProjectDetail() {
   const [tasks, setTasks] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Active tab: 'board' | 'github'
-  const [activeTab, setActiveTab] = useState<'board' | 'github'>('board');
+  // Active tab: 'board' | 'github' | 'insights'
+  const [activeTab, setActiveTab] = useState<'board' | 'github' | 'insights'>('board');
+  const [chatTask, setChatTask] = useState<any>(null);
 
   // Create task form
   const [createOpen, setCreateOpen] = useState(false);
@@ -60,6 +64,21 @@ export default function ProjectDetail() {
   const [selectedAiTasks, setSelectedAiTasks] = useState<Set<number>>(new Set());
   const [aiStep, setAiStep] = useState<'generate' | 'review'>('generate');
   const [isSavingAi, setIsSavingAi] = useState(false);
+  
+  // Phase 5C - Layer A Inputs
+  const [aiProjectType, setAiProjectType] = useState('');
+  const [aiTeamSkills, setAiTeamSkills] = useState('');
+  const [aiModules, setAiModules] = useState('');
+  const [aiSprintDays, setAiSprintDays] = useState('');
+  const [aiAssigneeHint, setAiAssigneeHint] = useState('');
+
+  const updateAiPreviewTask = (idx: number, field: string, value: any) => {
+    setAiPreviewTasks(prev => {
+      const next = [...prev];
+      next[idx] = { ...next[idx], [field]: value };
+      return next;
+    });
+  };
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
@@ -112,6 +131,11 @@ export default function ProjectDetail() {
         project_name: project?.name,
         project_description: project?.description,
         count: aiCount,
+        project_type: aiProjectType || undefined,
+        team_skills: aiTeamSkills ? aiTeamSkills.split(',').map(s => s.trim()) : [],
+        current_modules: aiModules ? aiModules.split(',').map(s => s.trim()) : [],
+        sprint_remaining_days: aiSprintDays ? parseInt(aiSprintDays) : undefined,
+        preferred_assignee_skills: aiAssigneeHint ? aiAssigneeHint.split(',').map(s => s.trim()) : [],
       });
       setAiPreviewTasks(res.data.tasks);
       setSelectedAiTasks(new Set(res.data.tasks.map((_: any, i: number) => i)));
@@ -150,19 +174,24 @@ export default function ProjectDetail() {
     }
   };
 
-  const handleDeleteTask = async (taskId: string) => {
-    if (!confirm('Delete this task?')) return;
+  const [taskToDelete, setTaskToDelete] = useState<string | null>(null);
+
+  const confirmDeleteTask = async () => {
+    if (!taskToDelete) return;
     try {
-      await apiClient.delete(`/tasks/${taskId}`);
-      setTasks(tasks.filter((t) => t.id !== taskId));
-    } catch {}
+      await apiClient.delete(`/tasks/${taskToDelete}`);
+      setTasks(tasks.filter((t) => t.id !== taskToDelete));
+      setTaskToDelete(null);
+    } catch (err: any) {
+      alert(err?.response?.data?.detail || 'Failed to delete task');
+    }
   };
 
   const handleUpdateStatus = async (taskId: string, newStatus: string) => {
     try {
       const res = await apiClient.patch(`/tasks/${taskId}/status`, { status: newStatus });
       setTasks(tasks.map((t) => (t.id === taskId ? res.data : t)));
-    } catch {}
+    } catch { }
   };
 
   const toggleAiTask = (i: number) => {
@@ -204,10 +233,9 @@ export default function ProjectDetail() {
   const progress = totalTasks > 0 ? Math.round((doneTasks / totalTasks) * 100) : 0;
 
   const TAB_CLASSES = (tab: string) =>
-    `px-4 py-2 text-sm font-semibold border-b-2 transition-colors cursor-pointer ${
-      activeTab === tab
-        ? 'border-gray-900 text-gray-900'
-        : 'border-transparent text-gray-400 hover:text-gray-700'
+    `px-4 py-2 text-sm font-semibold border-b-2 transition-colors cursor-pointer ${activeTab === tab
+      ? 'border-gray-900 text-gray-900'
+      : 'border-transparent text-gray-400 hover:text-gray-700'
     }`;
 
   return (
@@ -265,29 +293,77 @@ export default function ProjectDetail() {
                         <p className="text-xs text-purple-600 mt-1">{project.description}</p>
                       )}
                     </div>
-                    <div className="space-y-2">
-                      <Label>Number of tasks to generate</Label>
-                      <div className="flex items-center gap-3">
-                        {[3, 5, 7, 10].map((n) => (
-                          <button
-                            key={n}
-                            type="button"
-                            onClick={() => setAiCount(n)}
-                            className={`w-12 h-10 rounded-lg border text-sm font-semibold transition-all ${
-                              aiCount === n
-                                ? 'bg-gray-900 text-white border-gray-900'
-                                : 'bg-white text-gray-700 border-gray-200 hover:border-gray-400'
-                            }`}
-                          >
-                            {n}
-                          </button>
-                        ))}
+                    <div className="space-y-4">
+                      <div className="space-y-2">
+                        <Label>Number of tasks to generate</Label>
+                        <div className="flex items-center gap-3">
+                          {[3, 5, 7, 10].map((n) => (
+                            <button
+                              key={n}
+                              type="button"
+                              onClick={() => setAiCount(n)}
+                              className={`w-12 h-10 rounded-lg border text-sm font-semibold transition-all ${aiCount === n
+                                  ? 'bg-gray-900 text-white border-gray-900'
+                                  : 'bg-white text-gray-700 border-gray-200 hover:border-gray-400'
+                                }`}
+                            >
+                              {n}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-1">
+                          <Label className="text-xs">Project Type</Label>
+                          <input 
+                            value={aiProjectType} onChange={(e) => setAiProjectType(e.target.value)}
+                            placeholder="e.g. SaaS, E-commerce"
+                            className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-violet-400"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs">Sprint Days Remaining</Label>
+                          <input 
+                            type="number" value={aiSprintDays} onChange={(e) => setAiSprintDays(e.target.value)}
+                            placeholder="e.g. 5"
+                            className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-violet-400"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="space-y-1">
+                        <Label className="text-xs">Team Skills (comma separated)</Label>
+                        <input 
+                          value={aiTeamSkills} onChange={(e) => setAiTeamSkills(e.target.value)}
+                          placeholder="Node.js, React, Postgres"
+                          className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-violet-400"
+                        />
+                      </div>
+                      
+                      <div className="space-y-1">
+                        <Label className="text-xs">Target Modules</Label>
+                        <input 
+                          value={aiModules} onChange={(e) => setAiModules(e.target.value)}
+                          placeholder="Auth, Payment Gateway"
+                          className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-violet-400"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <Label className="text-xs">Preferred Assignee Skills</Label>
+                        <input 
+                          value={aiAssigneeHint} onChange={(e) => setAiAssigneeHint(e.target.value)}
+                          placeholder="Frontend, UX"
+                          className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-violet-400"
+                        />
                       </div>
                     </div>
+
                     <Button
                       onClick={handleAiGenerate}
                       disabled={isGenerating}
-                      className="w-full bg-purple-600 hover:bg-purple-700 text-white gap-2"
+                      className="w-full bg-purple-600 hover:bg-purple-700 text-white gap-2 mt-4"
                     >
                       {isGenerating ? (
                         <>
@@ -320,44 +396,50 @@ export default function ProjectDetail() {
                         return (
                           <div
                             key={i}
-                            onClick={() => toggleAiTask(i)}
-                            className={`p-3 rounded-lg border cursor-pointer transition-all ${
-                              selected
+                            className={`p-3 rounded-lg border transition-all ${selected
                                 ? 'border-gray-900 bg-gray-50'
                                 : 'border-gray-200 bg-white opacity-60'
-                            }`}
-                          >
-                            <div className="flex items-start justify-between gap-3">
-                              <div className="flex-1 min-w-0">
-                                <p className="text-sm font-semibold text-gray-900 truncate">
-                                  {t.title}
-                                </p>
-                                {t.description && (
-                                  <ShowMoreText text={t.description} lines={2} className="mt-0.5" />
-                                )}
-                              </div>
-                              <div className="flex flex-col items-end gap-1 flex-shrink-0">
-                                <span
-                                  className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded border flex items-center gap-1 ${pc.color}`}
-                                >
-                                  <pc.IconComp className="w-3 h-3" />
-                                  {t.priority}
-                                </span>
-                                {t.estimated_time && (
-                                  <span className="text-[10px] text-gray-400">
-                                    {t.estimated_time}h
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                            <div
-                              className={`mt-2 w-4 h-4 rounded border-2 flex items-center justify-center ml-auto ${
-                                selected
-                                  ? 'bg-gray-900 border-gray-900'
-                                  : 'border-gray-300'
                               }`}
-                            >
-                              {selected && <CheckCircle2 className="w-3 h-3 text-white" />}
+                          >
+                            <div className="flex items-start gap-3">
+                              <div className="mt-1 cursor-pointer flex-shrink-0" onClick={() => toggleAiTask(i)}>
+                                <div className={`w-4 h-4 rounded border-2 flex items-center justify-center ${selected ? 'bg-gray-900 border-gray-900' : 'border-gray-300'}`}>
+                                  {selected && <CheckCircle2 className="w-3 h-3 text-white" />}
+                                </div>
+                              </div>
+                              <div className="flex-1 min-w-0 space-y-2">
+                                <input
+                                  value={t.title}
+                                  onChange={(e) => updateAiPreviewTask(i, 'title', e.target.value)}
+                                  className="w-full text-sm font-semibold text-gray-900 bg-transparent border-b border-transparent hover:border-gray-300 focus:border-gray-900 focus:outline-none truncate"
+                                />
+                                <div className="flex gap-2">
+                                  <textarea
+                                    value={t.description || ''}
+                                    onChange={(e) => updateAiPreviewTask(i, 'description', e.target.value)}
+                                    rows={2}
+                                    className="w-full text-xs text-gray-600 bg-white border border-gray-200 rounded p-1.5 focus:outline-none focus:border-gray-400 custom-scrollbar resize-none"
+                                  />
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <select 
+                                    value={t.priority}
+                                    onChange={(e) => updateAiPreviewTask(i, 'priority', e.target.value)}
+                                    className="text-[10px] uppercase font-bold px-1 py-0.5 rounded border bg-white focus:outline-none"
+                                  >
+                                    {['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'].map(p => <option key={p} value={p}>{p}</option>)}
+                                  </select>
+                                  <div className="flex items-center gap-1">
+                                    <Label className="text-[10px] text-gray-500">Est. hours:</Label>
+                                    <input 
+                                      type="number"
+                                      value={t.estimated_time || ''}
+                                      onChange={(e) => updateAiPreviewTask(i, 'estimated_time', parseFloat(e.target.value))}
+                                      className="w-12 text-[10px] px-1 py-0.5 border rounded focus:outline-none"
+                                    />
+                                  </div>
+                                </div>
+                              </div>
                             </div>
                           </div>
                         );
@@ -514,7 +596,7 @@ export default function ProjectDetail() {
         </div>
 
         {/* Tab bar */}
-        <div className="flex items-center gap-0 border-b border-gray-200 -mx-6 px-6">
+        <div className="flex items-center gap-0 border-b border-gray-200 -mx-6 px-6 overflow-x-auto custom-scrollbar">
           <button className={TAB_CLASSES('board')} onClick={() => setActiveTab('board')}>
             Tasks
           </button>
@@ -523,7 +605,17 @@ export default function ProjectDetail() {
               <GitBranch className="w-3.5 h-3.5" /> GitHub
             </span>
           </button>
+          <button className={TAB_CLASSES('insights')} onClick={() => setActiveTab('insights')}>
+            <span className="flex items-center gap-1.5 text-purple-600">
+              <BarChart3 className="w-3.5 h-3.5 text-purple-600" /> AI Insights
+            </span>
+          </button>
         </div>
+
+        {/* AI Insights panel */}
+        {activeTab === 'insights' && (
+          <AIInsightsPanel project={project} tasks={tasks} />
+        )}
 
         {/* GitHub panel */}
         {activeTab === 'github' && id && (
@@ -585,7 +677,7 @@ export default function ProjectDetail() {
                                 {task.title}
                               </p>
                               <button
-                                onClick={() => handleDeleteTask(task.id)}
+                                onClick={() => setTaskToDelete(task.id)}
                                 className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 hover:text-red-500 flex-shrink-0"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
@@ -596,19 +688,30 @@ export default function ProjectDetail() {
                               <ShowMoreText text={task.description} lines={2} className="mt-1" />
                             )}
 
-                            <div className="flex flex-wrap items-center gap-1 mt-2">
-                              <span
-                                className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded border flex items-center gap-0.5 ${pc.color}`}
-                              >
-                                <pc.IconComp className="w-3 h-3" />
-                                {task.priority}
-                              </span>
-                              {task.estimated_time && (
-                                <span className="text-[10px] text-gray-400 flex items-center gap-0.5">
-                                  <Clock className="w-2.5 h-2.5" />
-                                  {task.estimated_time}h
+                            <div className="flex flex-col gap-2 mt-2">
+                              <div className="flex flex-wrap items-center gap-1">
+                                <span
+                                  className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded border flex items-center gap-0.5 ${pc.color}`}
+                                >
+                                  <pc.IconComp className="w-3 h-3" />
+                                  {task.priority}
                                 </span>
-                              )}
+                                {task.estimated_time && (
+                                  <span className="text-[10px] text-gray-400 flex items-center gap-0.5">
+                                    <Clock className="w-2.5 h-2.5" />
+                                    {task.estimated_time}h
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex items-center justify-between gap-2 border-t border-gray-100 pt-2">
+                                <AIPredictionBadges task={task} compact={true} />
+                                <button
+                                  onClick={() => setChatTask(task)}
+                                  className="w-6 h-6 rounded flex items-center justify-center bg-violet-50 text-violet-600 border border-violet-100 hover:bg-violet-100 transition-colors shrink-0 outline-none"
+                                >
+                                  <Bot className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
                             </div>
 
                             {/* Status quick-change */}
@@ -632,6 +735,37 @@ export default function ProjectDetail() {
           </div>
         ))}
       </main>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={!!taskToDelete} onOpenChange={(o) => !o && setTaskToDelete(null)}>
+        <DialogContent className="sm:max-w-[400px] bg-white">
+          <DialogHeader>
+            <DialogTitle className="text-red-600 flex items-center gap-2">
+              <Trash2 className="w-5 h-5" /> Confirm Deletion
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-4 text-sm text-gray-600">
+            Are you sure you want to delete this task? This action cannot be undone.
+          </div>
+          <div className="flex justify-end gap-3 mt-2">
+            <Button variant="outline" onClick={() => setTaskToDelete(null)}>
+              Cancel
+            </Button>
+            <Button className="bg-red-600 hover:bg-red-700 text-white" onClick={confirmDeleteTask}>
+              Yes, Delete
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Task Chat Drawer */}
+      {chatTask && (
+        <AITaskChat
+          task={chatTask}
+          open={!!chatTask}
+          onClose={() => setChatTask(null)}
+        />
+      )}
     </div>
   );
 }

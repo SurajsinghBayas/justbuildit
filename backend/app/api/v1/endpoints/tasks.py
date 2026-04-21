@@ -298,3 +298,79 @@ async def ai_generate_tasks(
         log.error(f"Bedrock AI generation failed: {exc}", exc_info=True)
         # Surface the real error so it can be debugged
         raise HTTPException(status_code=500, detail=f"Bedrock AI generation failed: {str(exc)}")
+
+class AITaskContext(BaseModel):
+    title: str
+    description: Optional[str] = None
+    complexity_label: Optional[str] = None
+    risk_factors: Optional[List[str]] = None
+    subtasks: Optional[list] = None
+    story_points: Optional[int] = None
+
+class AIChatRequest(BaseModel):
+    message: str
+    task_context: AITaskContext
+
+class AIChatResponse(BaseModel):
+    reply: str
+
+@router.post("/{task_id}/ai-chat", response_model=AIChatResponse)
+async def ai_task_chat(
+    task_id: str,
+    payload: AIChatRequest,
+    user_id: str = Depends(get_current_user_id),
+):
+    """Answer questions about a specific task using AWS Bedrock."""
+    import json, asyncio, logging
+    from concurrent.futures import ThreadPoolExecutor
+    from app.core.config import settings
+
+    log = logging.getLogger("app.ai.chat")
+
+    aws_key    = settings.AWS_ACCESS_KEY_ID
+    aws_secret = settings.AWS_SECRET_ACCESS_KEY
+    aws_region = settings.AWS_DEFAULT_REGION or "ap-south-1"
+    model_id   = settings.BEDROCK_MODEL_ID
+
+    if not aws_key or not aws_secret:
+        return AIChatResponse(reply="I am your AI assistant! (Mock mode: AWS Bedrock credentials not configured).")
+
+    ctx = payload.task_context
+    prompt = f"""
+You are an expert AI assistant helping a software engineer with a specific task.
+Task Details:
+- Title: {ctx.title}
+- Description: {ctx.description or 'None'}
+- Complexity: {ctx.complexity_label or 'Unknown'}
+- Story Points: {ctx.story_points or 'Unknown'}
+- Risks: {', '.join(ctx.risk_factors) if ctx.risk_factors else 'None'}
+- Subtasks provided: {len(ctx.subtasks) if ctx.subtasks else 0}
+
+User asks: {payload.message}
+Provide a clear, direct, and helpful answer. Do not use markdown wrapping unless it's code.
+"""
+
+    def _call_bedrock() -> str:
+        import boto3
+        client = boto3.client(
+            service_name="bedrock-runtime",
+            region_name=aws_region,
+            aws_access_key_id=aws_key,
+            aws_secret_access_key=aws_secret,
+        )
+        resp = client.converse(
+            modelId=model_id,
+            messages=[{"role": "user", "content": [{"text": prompt}]}],
+            inferenceConfig={"maxTokens": 1024, "temperature": 0.7},
+        )
+        return resp["output"]["message"]["content"][0]["text"]
+
+    try:
+        loop = asyncio.get_running_loop()
+        with ThreadPoolExecutor() as pool:
+            reply = await loop.run_in_executor(pool, _call_bedrock)
+        return AIChatResponse(reply=reply)
+    except Exception as exc:
+        log.error(f"Bedrock chat failed: {exc}")
+        raise HTTPException(status_code=500, detail="Failed to chat with AI assistant")
+
