@@ -54,8 +54,8 @@ export default function Dashboard() {
     async function fetchData() {
       try {
         const [meRes, summaryRes, projectsRes, tasksRes] = await Promise.all([
-          apiClient.get("/auth/me"),
-          apiClient.get("/analytics/summary"),
+          apiClient.get("/auth/me/"),
+          apiClient.get("/analytics/summary/"),
           apiClient.get("/projects/"),
           apiClient.get("/tasks/"),
         ]);
