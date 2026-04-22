@@ -259,6 +259,20 @@ export default function ProjectDetail() {
     }
   };
 
+  const [isDeletingProject, setIsDeletingProject] = useState(false);
+  const handleDeleteProject = async () => {
+    if (!window.confirm("Are you sure you want to delete this project? This action cannot be undone.")) return;
+    setIsDeletingProject(true);
+    try {
+      await apiClient.delete(`/projects/${id}`);
+      navigate('/projects');
+    } catch (err: any) {
+      alert(err?.response?.data?.detail || "Failed to delete project");
+    } finally {
+      setIsDeletingProject(false);
+    }
+  };
+
   const [taskToDelete, setTaskToDelete] = useState<string | null>(null);
 
   const confirmDeleteTask = async () => {
@@ -1017,6 +1031,31 @@ export default function ProjectDetail() {
                     Save Changes
                   </Button>
                 </form>
+              </CardContent>
+            </Card>
+
+            <Card className="sleek-card border-red-200 mt-6">
+              <CardContent className="p-6">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <h3 className="text-lg font-bold text-red-600 flex items-center gap-2">
+                      <AlertTriangle className="w-5 h-5" /> Danger Zone
+                    </h3>
+                    <p className="text-sm text-gray-500 mt-1">
+                      Permanently delete this project and all its tasks, connections, and data. This action cannot be undone.
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    onClick={handleDeleteProject}
+                    disabled={isDeletingProject}
+                    className="bg-red-600 hover:bg-red-700 text-white gap-2 mt-2"
+                  >
+                    {isDeletingProject ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                    {isDeletingProject ? "Deleting..." : "Delete Project"}
+                  </Button>
+                </div>
               </CardContent>
             </Card>
           </div>
