@@ -61,8 +61,8 @@ export default function Dashboard() {
         ]);
         setUser(meRes.data);
         setSummary(summaryRes.data);
-        setProjects(projectsRes.data);
-        setTasks(tasksRes.data);
+        setProjects(Array.isArray(projectsRes.data) ? projectsRes.data : []);
+        setTasks(Array.isArray(tasksRes.data) ? tasksRes.data : []);
         // keep navbar cache fresh
         localStorage.setItem("nav_user", JSON.stringify(meRes.data));
       } catch (err) {
