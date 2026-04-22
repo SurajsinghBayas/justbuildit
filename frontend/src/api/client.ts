@@ -19,7 +19,16 @@ apiClient.interceptors.request.use((config) => {
 });
 
 // Interceptor to handle responses and global errors
-apiClient.interceptors.response.use((response) => response, (error) => {
+apiClient.interceptors.response.use((response) => {
+  const contentType = response.headers['content-type'];
+  if (contentType && contentType.includes('text/html') && typeof response.data === 'string' && response.data.includes('<!doctype html>')) {
+    return Promise.reject({
+      message: 'Unexpected HTML response from API. Likely a Vercel cache issue.',
+      response: { status: 500, data: { detail: 'Vercel Cache Error' } }
+    });
+  }
+  return response;
+}, (error) => {
   const isLoginRequest = error.config?.url?.includes('/auth/login');
   if (error.response?.status === 401 && !isLoginRequest) {
     // If unauthorized and not a login request, token is likely expired or invalid

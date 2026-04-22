@@ -489,7 +489,7 @@ export default function Organizations() {
         apiClient.get("/organizations/"),
         apiClient.get("/auth/me"),
       ]);
-      setOrgs(orgRes.data);
+      setOrgs(Array.isArray(orgRes.data) ? orgRes.data : []);
       setCurrentUserId(meRes.data.id);
     } catch (err) {
       console.error(err);
